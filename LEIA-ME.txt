@@ -1,0 +1,25 @@
+JARVIS HOME OS — VISUAL EXPLAIN IMMERSIVE
+
+Esta atualização transforma o modo de explicação em um palco visual de tela inteira:
+- esconde os painéis laterais durante a explicação;
+- mantém o núcleo do JARVIS reduzido no canto;
+- usa a área central como uma “mesa” holográfica;
+- anima linhas, conexões e nós como se estivessem sendo desenhados;
+- ajusta tamanho e composição ao viewport e à altura da janela, evitando rolagem na tela principal;
+- inclui botão ESC × para fechar a cena e voltar ao painel normal.
+
+INSTALAÇÃO
+1. Faça uma cópia de segurança da pasta frontend/src atual.
+2. Extraia este ZIP.
+3. Copie as pastas/arquivos para a raiz do projeto, mesclando as pastas:
+   frontend/src/App.jsx
+   frontend/src/index.css
+   frontend/src/components/VisualExplain.jsx
+4. Não substitua backend/main.py, backend/.env, nem frontend/src/lib/api.js nesta atualização. Ela usa o endpoint visual já instalado.
+5. No terminal do frontend, rode npm run build para validar e npm run dev para testar.
+
+MULTITELAS
+A interface se adapta ao tamanho da janela/tela em que está aberta. Para usar um monitor dedicado, arraste a janela do navegador para esse monitor e use F11. O navegador não permite que um site mova automaticamente a aplicação para outro monitor sem ação do usuário. Em telas menores, os painéis reorganizam-se e o conteúdo visual pode rolar dentro da área de trabalho, sem rolagem da página inteira.
+
+LIMITES DESTA ETAPA
+As conexões e diagramas são desenhados e animados na própria interface. Esta etapa ainda não busca automaticamente imagens e vídeos reais nem gera cenas 3D específicas. O “Olho de Deus” pode ser desenvolvido como uma cena visual própria, mas qualquer visualização de locais, câmeras ou dispositivos reais exige integração e permissões explícitas; esta atualização não acessa câmeras nem monitora pessoas.
