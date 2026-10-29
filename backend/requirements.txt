@@ -7,3 +7,8 @@ pydantic>=2.7
 # Conexões com contas externas (cofre de tokens e senha do admin)
 cryptography>=43
 bcrypt>=4.2
+tzdata>=2024.1
+google-api-python-client>=2.140
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2
+google-analytics-data>=0.18

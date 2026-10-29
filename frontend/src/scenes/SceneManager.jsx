@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from "react";
 import IdleScene from "./IdleScene.jsx";
+import BriefingScene from "./BriefingScene.jsx";
+import AdminScene from "./AdminScene.jsx";
 
-// Registro de cenas em sobreposição. A cena ACTIVE é o próprio HUD (children).
-// Para criar uma cena nova (ex.: ALERT, HOME), registre o componente aqui
-// e chame goTo("ALERT") no useSceneManager.
+// Cenas em sobreposição. A cena ACTIVE é o próprio HUD (children), sempre montado por baixo.
+// Para criar uma cena nova: registre o componente aqui e chame goTo("NOME").
+// As props de cada cena vêm de overlayProps[NOME].
 const OVERLAYS = {
   IDLE: IdleScene,
+  BRIEFING: BriefingScene,
+  ADMIN: AdminScene,
 };
 
-const FADE_MS = 700;
+const FADE_MS = 600;
 
-export default function SceneManager({ scene, onWake, children }) {
-  const [mounted, setMounted] = useState(null); // cena em sobreposição montada
-  const [visible, setVisible] = useState(false); // controla o fade
+export default function SceneManager({ scene, overlayProps = {}, children }) {
+  const [mounted, setMounted] = useState(null);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (OVERLAYS[scene]) {
@@ -30,7 +34,6 @@ export default function SceneManager({ scene, onWake, children }) {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* HUD ativo fica sempre montado para preservar logs, histórico e clima */}
       <div
         className="h-full w-full"
         style={{
@@ -53,7 +56,7 @@ export default function SceneManager({ scene, onWake, children }) {
             pointerEvents: visible ? "auto" : "none",
           }}
         >
-          <Overlay onWake={onWake} />
+          <Overlay {...(overlayProps[mounted] || {})} />
         </div>
       )}
     </div>

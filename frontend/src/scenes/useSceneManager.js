@@ -3,14 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Gerenciador de cena do HUD.
  *
- * Cenas: "ACTIVE" (HUD completo) e "IDLE" (holograma em espera).
- * - Entra em IDLE depois de `idleSeconds` sem interação, mas só se `canIdle` for true
- *   (ou seja, o assistente está em STANDBY e não ouvindo/processando/falando).
- * - Volta para ACTIVE com clique, toque, tecla, movimento relevante do mouse
- *   ou chamando `wake()` (ex.: futura wake word "Jarvis").
- * - Atalho de teste: Alt+I alterna IDLE/ACTIVE sem esperar o timer.
+ * Cenas: ACTIVE (HUD completo), IDLE (holograma), BRIEFING (resultado de rotina) e ADMIN (painel de rotinas).
+ * - ACTIVE -> IDLE após `idleSeconds` sem interação (só se `canIdle`: assistente em STANDBY).
+ * - BRIEFING -> IDLE após `briefingSeconds` sem interação.
+ * - ADMIN nunca expira.
+ * - Qualquer atividade acorda o IDLE (volta para ACTIVE). `wake()` pode ser chamado de fora (wake word).
+ * Atalhos: Alt+I alterna IDLE/ACTIVE; Alt+R abre/fecha o painel de rotinas.
  */
-export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
+export function useSceneManager({ canIdle, idleSeconds = 45, briefingSeconds = 180, onChange }) {
   const [scene, setScene] = useState("ACTIVE");
   const sceneRef = useRef("ACTIVE");
   const timer = useRef(null);
@@ -29,18 +29,28 @@ export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
 
   const arm = useCallback(() => {
     clearTimeout(timer.current);
-    if (!canIdleRef.current) return;
+    const current = sceneRef.current;
+    if (!canIdleRef.current || current === "ADMIN" || current === "IDLE") return;
+    const secs = current === "BRIEFING" ? briefingSeconds : idleSeconds;
     timer.current = setTimeout(() => {
-      if (canIdleRef.current) go("IDLE");
-    }, idleSeconds * 1000);
-  }, [go, idleSeconds]);
+      if (canIdleRef.current && sceneRef.current !== "ADMIN") go("IDLE");
+    }, secs * 1000);
+  }, [go, idleSeconds, briefingSeconds]);
 
   const wake = useCallback(() => {
     go("ACTIVE");
     arm();
   }, [go, arm]);
 
-  // Reage a mudanças de status: ocupado => acorda e para o timer; livre => rearma.
+  const goTo = useCallback(
+    (next) => {
+      go(next);
+      arm();
+    },
+    [go, arm]
+  );
+
+  // Status ocupado => acorda e para o timer; livre => rearma.
   useEffect(() => {
     if (canIdle) {
       arm();
@@ -51,7 +61,11 @@ export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
     return () => clearTimeout(timer.current);
   }, [canIdle, arm, go]);
 
-  // Detecta atividade do usuário.
+  // Rearma ao trocar de cena.
+  useEffect(() => {
+    arm();
+  }, [scene, arm]);
+
   useEffect(() => {
     let lastArm = 0;
 
@@ -66,7 +80,6 @@ export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
 
     const onMove = (e) => {
       if (sceneRef.current === "IDLE") {
-        // Ignora tremidas pequenas: só acorda se o mouse andou de verdade.
         const p = lastPos.current;
         lastPos.current = { x: e.clientX, y: e.clientY };
         if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 40) wake();
@@ -81,6 +94,11 @@ export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
         e.preventDefault();
         if (sceneRef.current === "IDLE") wake();
         else go("IDLE");
+        return;
+      }
+      if (e.altKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        go(sceneRef.current === "ADMIN" ? "ACTIVE" : "ADMIN");
         return;
       }
       onActivity();
@@ -98,5 +116,5 @@ export function useSceneManager({ canIdle, idleSeconds = 45, onChange }) {
     };
   }, [arm, wake, go]);
 
-  return { scene, wake, goTo: go };
+  return { scene, wake, goTo };
 }

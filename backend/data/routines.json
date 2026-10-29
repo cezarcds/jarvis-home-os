@@ -1,0 +1,140 @@
+[
+  {
+    "id": "bom-dia",
+    "nome": "Bom dia",
+    "descricao": "Panorama da manhã: agenda de hoje, emails aguardando resposta e clima.",
+    "gatilhos": [
+      "bom dia",
+      "bom dia jarvis",
+      "como está meu dia hoje",
+      "como tá meu dia hoje",
+      "o que tenho para hoje",
+      "o que eu tenho que fazer hoje",
+      "resumo do dia"
+    ],
+    "tipo": "leitura",
+    "ativa": true,
+    "passos": [
+      {
+        "id": "agenda",
+        "ferramenta": "agenda.hoje",
+        "params": {
+          "todos_calendarios": true
+        }
+      },
+      {
+        "id": "emails",
+        "ferramenta": "gmail.para_responder",
+        "params": {
+          "max": 5,
+          "so_importantes": true
+        }
+      },
+      {
+        "id": "clima",
+        "ferramenta": "clima.agora",
+        "params": {}
+      },
+      {
+        "id": "proximos_dias",
+        "ferramenta": "agenda.proximos_dias",
+        "params": {
+          "dias": "14",
+          "todos_calendarios": true
+        }
+      }
+    ],
+    "tela": {
+      "cena": "briefing",
+      "titulo": "Bom dia",
+      "blocos": [
+        "agenda",
+        "emails",
+        "clima"
+      ]
+    },
+    "fala": {
+      "modo": "resumo",
+      "instrucao": null
+    },
+    "criada_em": "2026-10-29T19:49:40",
+    "atualizada_em": "2026-10-29T20:24:22"
+  },
+  {
+    "id": "fim-do-dia",
+    "nome": "Fim do dia",
+    "descricao": "Fechamento: agenda de amanhã e emails que ainda precisam de resposta.",
+    "gatilhos": [
+      "encerrar o dia",
+      "fim do expediente",
+      "como está amanhã",
+      "o que tenho amanhã"
+    ],
+    "tipo": "leitura",
+    "ativa": true,
+    "passos": [
+      {
+        "id": "agenda",
+        "ferramenta": "agenda.amanha",
+        "params": {
+          "todos_calendarios": true
+        }
+      },
+      {
+        "id": "emails",
+        "ferramenta": "gmail.para_responder",
+        "params": {
+          "max": 5,
+          "so_importantes": true
+        }
+      }
+    ],
+    "tela": {
+      "cena": "briefing",
+      "titulo": "Fim do dia",
+      "blocos": [
+        "agenda",
+        "emails"
+      ]
+    },
+    "fala": {
+      "modo": "resumo",
+      "instrucao": null
+    },
+    "criada_em": "2026-10-29T19:49:40",
+    "atualizada_em": "2026-10-29T20:23:52"
+  },
+  {
+    "id": "bom-dia-2",
+    "nome": "Bom dia",
+    "descricao": "Inicia o dia com clima atual",
+    "gatilhos": [
+      "bom dia",
+      "bom dia jarvis",
+      "como está meu dia hoje",
+      "como tá meu dia hoje"
+    ],
+    "tipo": "leitura",
+    "ativa": true,
+    "passos": [
+      {
+        "id": "clima_agora",
+        "ferramenta": "clima.agora",
+        "params": {}
+      }
+    ],
+    "tela": {
+      "cena": "briefing",
+      "titulo": "Bom dia",
+      "blocos": [
+        "clima_agora"
+      ]
+    },
+    "fala": {
+      "modo": "resumo",
+      "instrucao": null
+    },
+    "criada_em": "2026-10-29T19:50:23",
+    "atualizada_em": "2026-10-29T19:50:23"
+  }
+]

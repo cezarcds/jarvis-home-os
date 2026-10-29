@@ -51,5 +51,7 @@ export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError
     [voice, onSpeakStart, onSpeakEnd]
   );
 
-  return { supported, startListening, stopListening, speak };
+  const stopSpeaking = useCallback(() => window.speechSynthesis.cancel(), []);
+
+  return { supported, startListening, stopListening, stopSpeaking, speak };
 }

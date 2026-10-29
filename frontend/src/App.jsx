@@ -2,83 +2,104 @@ import React, { useCallback, useRef, useState } from "react";
 import CoreRings from "./components/CoreRings.jsx";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
-import { askJarvisWithActions, askVisualExplain } from "./lib/api.js";
-import VisualExplain from "./components/VisualExplain.jsx";
+import { askAssistant } from "./lib/api.js";
 import SceneManager from "./scenes/SceneManager.jsx";
 import { useSceneManager } from "./scenes/useSceneManager.js";
-import AdminHost from "./admin/AdminHost.jsx";
 
 const IDLE_SECONDS = Number(import.meta.env.VITE_IDLE_SECONDS) || 45;
+const BRIEFING_SECONDS = Number(import.meta.env.VITE_BRIEFING_SECONDS) || 180;
+
 const now = () => new Date().toLocaleTimeString("pt-BR");
+const normalize = (s) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+// Comandos tratados no navegador (não precisam do backend)
+const CLOSE_RE = /^(jarvis )?(ok|fechar|pode fechar|voltar|obrigado|obrigada|valeu|tchau|dispensado)( jarvis)?$/;
+const ADMIN_RE = /(painel de rotinas|\badmin\b|gerenciar rotinas|editar rotinas|abr\w* (as |a )?(minhas )?rotinas)/;
+
+const newSessionId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 
 export default function App() {
   const [status, setStatus] = useState("STANDBY");
   const [userText, setUserText] = useState("");
   const [reply, setReply] = useState("Sistema em espera. Toque no núcleo para falar.");
-  const [visualData, setVisualData] = useState(null);
-  const [visualLoading, setVisualLoading] = useState(false);
-  const [visualMode, setVisualMode] = useState(false);
   const [logs, setLogs] = useState([{ time: now(), msg: "Sistema inicializado.", level: "info" }]);
+  const [briefing, setBriefing] = useState(null);
+  const [typed, setTyped] = useState("");
   const history = useRef([]);
-  const [pendingActions, setPendingActions] = useState([]);
-  const lastQuestion = useRef("");
+  const sessionId = useRef(newSessionId());
+  const speechRef = useRef(null);
+  const sceneRef = useRef("ACTIVE");
 
   const log = useCallback((msg, level = "info") => {
     setLogs((l) => [...l.slice(-100), { time: now(), msg, level }]);
   }, []);
 
-  const handleError = useCallback((msg) => {
-    log(msg, "warn");
-    setReply(msg);
-    setVisualLoading(false);
-    setStatus("STANDBY");
-  }, [log]);
+  const { scene, wake, goTo } = useSceneManager({
+    canIdle: status === "STANDBY",
+    idleSeconds: IDLE_SECONDS,
+    briefingSeconds: BRIEFING_SECONDS,
+    onChange: (s) => {
+      const names = { IDLE: "Modo IDLE ativado.", ACTIVE: "HUD ativo.", BRIEFING: "Painel de rotina aberto.", ADMIN: "Painel de rotinas aberto." };
+      log(names[s] || s);
+    },
+  });
+  sceneRef.current = scene;
 
-  const speechRef = useRef(null);
+  const handleError = useCallback(
+    (msg) => {
+      log(msg, "warn");
+      setReply(msg);
+      setStatus("STANDBY");
+    },
+    [log]
+  );
 
-  const handleTranscript = useCallback(async (text) => {
-    setUserText(text);
-    lastQuestion.current = text;
-    setPendingActions([]);
-    log(`Comando: "${text}"`);
-    setStatus("PROCESSING");
-    setVisualMode(true);
-    history.current.push({ role: "user", content: text });
-    setVisualLoading(true);
-    setVisualData(null);
-    try {
-      let answer;
+  // Envia um comando (voz ou texto) ao assistente e aplica a resposta (fala + cena).
+  const send = useCallback(
+    async (text) => {
+      setUserText(text);
+      log(`Comando: "${text}"`);
+      setStatus("PROCESSING");
+      history.current.push({ role: "user", content: text });
       try {
-        const explanation = await askVisualExplain(history.current.slice(-12));
-        answer = explanation.answer;
-        setPendingActions(explanation.actions || []);
-        setVisualData(explanation);
-        log("Palco visual preparado.");
-      } catch (visualErr) {
-        console.warn("[JARVIS] Visual Explain indisponível; usando resposta simples.", visualErr);
-        const simple = await askJarvisWithActions(history.current.slice(-12));
-        answer = simple.text;
-        setPendingActions(simple.actions);
-        setVisualData(null);
-        log("Resposta recebida em modo simples.");
+        const r = await askAssistant(history.current.slice(-12), sessionId.current);
+        history.current.push({ role: "assistant", content: r.text || "(rotina exibida na tela)" });
+        if (r.text) setReply(r.text);
+        if (r.scene) {
+          setBriefing(r.scene);
+          goTo("BRIEFING");
+          if (r.scene.rotina) log(`Rotina executada: ${r.scene.rotina.nome}`);
+        }
+        if (r.text) speechRef.current.speak(r.text);
+        else setStatus("STANDBY");
+      } catch (err) {
+        history.current.pop();
+        handleError(err.message);
       }
-      history.current.push({ role: "assistant", content: answer });
-      setReply(answer);
-      speechRef.current.speak(answer);
-    } catch (err) {
-      history.current.pop();
-      handleError(err.message);
-    } finally {
-      setVisualLoading(false);
-    }
-  }, [log, handleError]);
+    },
+    [log, handleError, goTo]
+  );
 
-  // Depois que uma conta é autorizada pelo popup, repete a pergunta que pediu a conexão.
-  const onConnected = useCallback((provider) => {
-    log(`Conta ${provider} conectada.`);
-    setPendingActions([]);
-    if (lastQuestion.current) handleTranscript(lastQuestion.current);
-  }, [log, handleTranscript]);
+  const handleTranscript = useCallback(
+    (text) => {
+      const n = normalize(text);
+      if (sceneRef.current === "BRIEFING" && CLOSE_RE.test(n)) {
+        log("Painel fechado por voz.");
+        goTo("ACTIVE");
+        setStatus("STANDBY");
+        return;
+      }
+      if (ADMIN_RE.test(n)) {
+        setUserText(text);
+        goTo("ADMIN");
+        setStatus("STANDBY");
+        return;
+      }
+      send(text);
+    },
+    [send, goTo, log]
+  );
 
   const speech = useSpeech({
     onFinalTranscript: handleTranscript,
@@ -88,12 +109,6 @@ export default function App() {
   });
   speechRef.current = speech;
 
-  const { scene, wake } = useSceneManager({
-    canIdle: status === "STANDBY" && !visualMode,
-    idleSeconds: IDLE_SECONDS,
-    onChange: (s) => log(s === "IDLE" ? "Modo IDLE ativado." : "Sistema reativado."),
-  });
-
   const onCoreClick = () => {
     if (status === "LISTENING") {
       speech.stopListening();
@@ -102,57 +117,78 @@ export default function App() {
     }
     if (status === "PROCESSING") return;
     setUserText("");
-    setVisualData(null);
-    setVisualLoading(false);
-    setVisualMode(false);
     setStatus("LISTENING");
     log("Microfone ativo.");
     speech.startListening();
   };
 
-  const closeVisualMode = () => {
-    window.speechSynthesis?.cancel();
-    setVisualMode(false);
-    setVisualLoading(false);
-    setStatus("STANDBY");
+  const submitTyped = (e) => {
+    e.preventDefault();
+    if (!typed.trim() || status === "PROCESSING") return;
+    handleTranscript(typed.trim());
+    setTyped("");
+  };
+
+  const closeScene = () => {
+    speech.stopSpeaking?.();
+    goTo("ACTIVE");
+    setStatus((s) => (s === "SPEAKING" ? "STANDBY" : s));
+  };
+
+  const overlayProps = {
+    IDLE: { onWake: wake },
+    BRIEFING: { data: briefing, status, userText, reply, onMic: onCoreClick, onClose: closeScene, onSend: send },
+    ADMIN: {
+      onClose: () => goTo("ACTIVE"),
+      onRun: (res) => {
+        setBriefing(res.scene);
+        goTo("BRIEFING");
+        if (res.text) {
+          setReply(res.text);
+          speechRef.current.speak(res.text);
+        }
+      },
+      onToast: (m) => log(m),
+    },
   };
 
   return (
-    <SceneManager scene={scene} onWake={wake}>
-      <div className={`blueprint jarvis-app ${visualMode ? "visual-mode" : ""}`}>
-        <header className="jarvis-header">
-          <span>JARVIS <i>// HOME OS</i></span>
-          <span className={`jarvis-status ${status === "LISTENING" ? "is-listening" : ""}`}><b />{status}</span>
-          {visualMode && <button className="visual-close" onClick={closeVisualMode} title="Fechar modo visual">ESC ×</button>}
+    <SceneManager scene={scene} overlayProps={overlayProps}>
+      <div className="blueprint h-full w-full flex flex-col text-hud-cyan">
+        <header className="px-6 py-3 flex justify-between items-center text-xs tracking-[0.4em] border-b border-hud-cyan/20">
+          <span>JARVIS // HOME OS</span>
+          <div className="flex items-center gap-6">
+            <button onClick={() => goTo("ADMIN")} className="tracking-[0.3em] opacity-70 hover:opacity-100" title="Alt+R">
+              ROTINAS
+            </button>
+            <span className={status === "LISTENING" ? "text-hud-amber" : ""}>● {status}</span>
+          </div>
         </header>
 
-        <main className="jarvis-main">
-          {!visualMode && <LeftPanels />}
-          <section className="jarvis-center">
-            <div className="jarvis-core-wrap">
-              <CoreRings status={status} onClick={onCoreClick} />
-              {!visualMode && <span className="core-hint">{status === "LISTENING" ? "OUVINDO" : "TOQUE PARA FALAR"}</span>}
-            </div>
+        <main className="flex-1 flex items-center justify-between px-8 gap-6 min-h-0">
+          <LeftPanels />
 
-            {visualMode ? (
-              <VisualExplain
-                data={visualData}
-                loading={visualLoading}
-                question={userText}
-                answer={reply}
-                status={status}
+          <div className="flex flex-col items-center gap-6 flex-1 min-w-0">
+            <CoreRings status={status} onClick={onCoreClick} />
+            <div className="panel p-4 w-full max-w-2xl text-sm space-y-2">
+              {userText && <div className="text-hud-cyan/60">&gt; {userText}</div>}
+              <div className="text-cyan-100 leading-relaxed">{reply}</div>
+            </div>
+            <form onSubmit={submitTyped} className="w-full max-w-2xl">
+              <input
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder="ou digite um comando, ex.: bom dia"
+                className="w-full bg-transparent border border-hud-cyan/25 px-3 py-2 text-xs outline-none focus:border-hud-cyan"
               />
-            ) : (
-              <div className="panel reply-panel">
-                {userText && <div className="reply-question">&gt; {userText}</div>}
-                <div className="reply-text">{reply}</div>
-                {!speech.supported && <div className="speech-warning">Web Speech API indisponível neste navegador (use Chrome/Edge).</div>}
-              </div>
+            </form>
+            {!speech.supported && (
+              <div className="text-hud-amber text-xs">Web Speech API indisponível neste navegador (use Chrome/Edge).</div>
             )}
-          </section>
-          {!visualMode && <RightConsole logs={logs} />}
+          </div>
+
+          <RightConsole logs={logs} />
         </main>
-        <AdminHost actions={pendingActions} onDismiss={() => setPendingActions([])} onConnected={onConnected} />
       </div>
     </SceneManager>
   );

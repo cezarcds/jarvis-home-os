@@ -1,4 +1,3 @@
-
 import logging
 import os
 import time
@@ -14,7 +13,9 @@ from pydantic import BaseModel
 from connections import router as connections_router
 from connections.tools import run_tools_phase
 
-load_dotenv(override=True)
+load_dotenv(override=True)  # ANTES de importar routines.*
+
+from routines.api import router as routines_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,6 +63,7 @@ app.add_middleware(
 )
 
 app.include_router(connections_router)
+app.include_router(routines_router)  # depois de criar o app e o CORS
 
 
 class Message(BaseModel):
@@ -268,8 +270,6 @@ async def call_gemini(messages, req):
             }
         ],
     }
-
-
 
 
 @app.post("/v1/visual-explain")
