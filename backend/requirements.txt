@@ -1,5 +1,9 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
+httpx>=0.27
 litellm>=1.50
 python-dotenv>=1.0
 pydantic>=2.7
+# Conexões com contas externas (cofre de tokens e senha do admin)
+cryptography>=43
+bcrypt>=4.2

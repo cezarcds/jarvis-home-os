@@ -1,0 +1,169 @@
+diff --git a/backend/main.py b/backend/main.py
+index 1c73108..f979e5f 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -11,6 +11,9 @@ from fastapi import FastAPI, HTTPException
+ from fastapi.middleware.cors import CORSMiddleware
+ from pydantic import BaseModel
+ 
++from connections import router as connections_router
++from connections.tools import run_tools_phase
++
+ load_dotenv(override=True)
+ 
+ logging.basicConfig(
+@@ -58,6 +61,8 @@ app.add_middleware(
+     allow_headers=["*"],
+ )
+ 
++app.include_router(connections_router)
++
+ 
+ class Message(BaseModel):
+     role: Literal["system", "user", "assistant"]
+@@ -270,6 +275,9 @@ async def call_gemini(messages, req):
+ @app.post("/v1/visual-explain")
+ async def visual_explain(req: ChatRequest):
+     """Retorna uma explicação e um plano visual estruturado para a interface."""
++    tools = run_tools_phase(req.messages)
++    if tools.direct_answer:
++        return {"answer": tools.direct_answer, "title": "Conexão necessária", "visuals": [], "actions": tools.actions}
+     if not GROQ_API_KEY and not GEMINI_API_KEY:
+         raise HTTPException(status_code=503, detail="Configure GROQ_API_KEY ou GEMINI_API_KEY no .env.")
+     if not req.messages:
+@@ -280,7 +288,7 @@ Crie uma explicação falável e um plano de recursos visuais para acompanhar a
+ Retorne SOMENTE JSON válido, sem markdown, com este formato exato:
+ {"answer":"explicação falável de 3 a 6 frases","title":"título curto","visuals":[{"type":"diagram|steps|concepts|comparison|timeline|equation","title":"título do painel","caption":"legenda curta","items":[{"label":"rótulo curto","detail":"descrição de até 12 palavras"}]}]}
+ Inclua de 1 a 3 painéis visuais. Cada painel deve ter 2 a 5 items. Escolha o tipo adequado ao assunto. Use diagram para processos/partes de um sistema, steps para sequência, concepts para conceitos, comparison para diferenças, timeline para história e equation para matemática. Não invente imagens externas nem URLs. Priorize visualizações que possam ser desenhadas diretamente na interface. O texto de answer deve ser natural para voz, sem listas nem markdown. Não inclua conteúdo perigoso; para temas médicos, financeiros ou de segurança, mantenha cautela e contexto."""
+-    messages = get_messages(req, visual_system)
++    messages = get_messages(req, visual_system + tools.system_addendum)
+     errors = []
+     raw = None
+     if GROQ_API_KEY:
+@@ -316,6 +324,17 @@ Inclua de 1 a 3 painéis visuais. Cada painel deve ter 2 a 5 items. Escolha o ti
+ 
+ @app.post("/v1/chat/completions")
+ async def chat_completions(req: ChatRequest):
++    tools = run_tools_phase(req.messages)
++    if tools.direct_answer:
++        return {
++            "id": f"chatcmpl-{uuid.uuid4()}",
++            "object": "chat.completion",
++            "created": int(time.time()),
++            "model": "jarvis-connections",
++            "provider": "jarvis-connections",
++            "choices": [{"index": 0, "message": {"role": "assistant", "content": tools.direct_answer}, "finish_reason": "stop"}],
++            "actions": tools.actions,
++        }
+     if not GROQ_API_KEY and not GEMINI_API_KEY:
+         raise HTTPException(
+             status_code=503,
+@@ -328,7 +347,7 @@ async def chat_completions(req: ChatRequest):
+             detail="Envie pelo menos uma mensagem.",
+         )
+ 
+-    messages = get_messages(req)
++    messages = get_messages(req, SYSTEM_PROMPT + tools.system_addendum)
+     started = time.time()
+     errors = []
+ 
+diff --git a/frontend/src/App.jsx b/frontend/src/App.jsx
+index 13eae21..0fad956 100644
+--- a/frontend/src/App.jsx
++++ b/frontend/src/App.jsx
+@@ -2,10 +2,11 @@ import React, { useCallback, useRef, useState } from "react";
+ import CoreRings from "./components/CoreRings.jsx";
+ import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
+ import { useSpeech } from "./hooks/useSpeech.js";
+-import { askJarvis, askVisualExplain } from "./lib/api.js";
++import { askJarvisWithActions, askVisualExplain } from "./lib/api.js";
+ import VisualExplain from "./components/VisualExplain.jsx";
+ import SceneManager from "./scenes/SceneManager.jsx";
+ import { useSceneManager } from "./scenes/useSceneManager.js";
++import AdminHost from "./admin/AdminHost.jsx";
+ 
+ const IDLE_SECONDS = Number(import.meta.env.VITE_IDLE_SECONDS) || 45;
+ const now = () => new Date().toLocaleTimeString("pt-BR");
+@@ -19,6 +20,8 @@ export default function App() {
+   const [visualMode, setVisualMode] = useState(false);
+   const [logs, setLogs] = useState([{ time: now(), msg: "Sistema inicializado.", level: "info" }]);
+   const history = useRef([]);
++  const [pendingActions, setPendingActions] = useState([]);
++  const lastQuestion = useRef("");
+ 
+   const log = useCallback((msg, level = "info") => {
+     setLogs((l) => [...l.slice(-100), { time: now(), msg, level }]);
+@@ -35,6 +38,8 @@ export default function App() {
+ 
+   const handleTranscript = useCallback(async (text) => {
+     setUserText(text);
++    lastQuestion.current = text;
++    setPendingActions([]);
+     log(`Comando: "${text}"`);
+     setStatus("PROCESSING");
+     setVisualMode(true);
+@@ -46,11 +51,14 @@ export default function App() {
+       try {
+         const explanation = await askVisualExplain(history.current.slice(-12));
+         answer = explanation.answer;
++        setPendingActions(explanation.actions || []);
+         setVisualData(explanation);
+         log("Palco visual preparado.");
+       } catch (visualErr) {
+         console.warn("[JARVIS] Visual Explain indisponível; usando resposta simples.", visualErr);
+-        answer = await askJarvis(history.current.slice(-12));
++        const simple = await askJarvisWithActions(history.current.slice(-12));
++        answer = simple.text;
++        setPendingActions(simple.actions);
+         setVisualData(null);
+         log("Resposta recebida em modo simples.");
+       }
+@@ -65,6 +73,13 @@ export default function App() {
+     }
+   }, [log, handleError]);
+ 
++  // Depois que uma conta é autorizada pelo popup, repete a pergunta que pediu a conexão.
++  const onConnected = useCallback((provider) => {
++    log(`Conta ${provider} conectada.`);
++    setPendingActions([]);
++    if (lastQuestion.current) handleTranscript(lastQuestion.current);
++  }, [log, handleTranscript]);
++
+   const speech = useSpeech({
+     onFinalTranscript: handleTranscript,
+     onSpeakStart: () => setStatus("SPEAKING"),
+@@ -137,6 +152,7 @@ export default function App() {
+           </section>
+           {!visualMode && <RightConsole logs={logs} />}
+         </main>
++        <AdminHost actions={pendingActions} onDismiss={() => setPendingActions([])} onConnected={onConnected} />
+       </div>
+     </SceneManager>
+   );
+diff --git a/frontend/src/lib/api.js b/frontend/src/lib/api.js
+index 163b742..8a4e9c1 100644
+--- a/frontend/src/lib/api.js
++++ b/frontend/src/lib/api.js
+@@ -27,6 +27,14 @@ export async function askJarvis(messages) {
+   return text;
+ }
+ 
++// Igual ao askJarvis, mas também devolve as ações pedidas pelo backend (ex.: conectar uma conta).
++export async function askJarvisWithActions(messages) {
++  const data = await postChat("/v1/chat/completions", messages);
++  const text = data?.choices?.[0]?.message?.content?.trim();
++  if (!text) throw new Error("Resposta vazia do núcleo.");
++  return { text, actions: Array.isArray(data?.actions) ? data.actions : [] };
++}
++
+ export async function askVisualExplain(messages) {
+   const data = await postChat("/v1/visual-explain", messages);
+   if (!data?.answer) throw new Error("A explicação visual veio vazia.");
+@@ -34,6 +42,7 @@ export async function askVisualExplain(messages) {
+     answer: data.answer,
+     title: data.title || "Explicação visual",
+     visuals: Array.isArray(data.visuals) ? data.visuals : [],
++    actions: Array.isArray(data.actions) ? data.actions : [], // ex.: {type:"connect", provider:"google"}
+   };
+ }
+ 

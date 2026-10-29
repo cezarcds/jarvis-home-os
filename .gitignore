@@ -1,0 +1,25 @@
+# Ambientes e dependências
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Segredos: nunca versionar
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Dados locais do JARVIS (banco de tokens, chave, logs)
+*.db
+*.sqlite
+*.sqlite3
+.jarvis/
+
+# Build e sistema
+frontend/dist/
+.DS_Store
+Thumbs.db

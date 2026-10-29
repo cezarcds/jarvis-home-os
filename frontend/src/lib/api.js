@@ -27,6 +27,14 @@ export async function askJarvis(messages) {
   return text;
 }
 
+// Igual ao askJarvis, mas também devolve as ações pedidas pelo backend (ex.: conectar uma conta).
+export async function askJarvisWithActions(messages) {
+  const data = await postChat("/v1/chat/completions", messages);
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!text) throw new Error("Resposta vazia do núcleo.");
+  return { text, actions: Array.isArray(data?.actions) ? data.actions : [] };
+}
+
 export async function askVisualExplain(messages) {
   const data = await postChat("/v1/visual-explain", messages);
   if (!data?.answer) throw new Error("A explicação visual veio vazia.");
@@ -34,6 +42,7 @@ export async function askVisualExplain(messages) {
     answer: data.answer,
     title: data.title || "Explicação visual",
     visuals: Array.isArray(data.visuals) ? data.visuals : [],
+    actions: Array.isArray(data.actions) ? data.actions : [], // ex.: {type:"connect", provider:"google"}
   };
 }
 

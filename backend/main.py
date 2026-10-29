@@ -11,6 +11,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from connections import router as connections_router
+from connections.tools import run_tools_phase
+
 load_dotenv(override=True)
 
 logging.basicConfig(
@@ -57,6 +60,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(connections_router)
 
 
 class Message(BaseModel):
@@ -270,6 +275,9 @@ async def call_gemini(messages, req):
 @app.post("/v1/visual-explain")
 async def visual_explain(req: ChatRequest):
     """Retorna uma explicação e um plano visual estruturado para a interface."""
+    tools = run_tools_phase(req.messages)
+    if tools.direct_answer:
+        return {"answer": tools.direct_answer, "title": "Conexão necessária", "visuals": [], "actions": tools.actions}
     if not GROQ_API_KEY and not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Configure GROQ_API_KEY ou GEMINI_API_KEY no .env.")
     if not req.messages:
@@ -280,7 +288,7 @@ Crie uma explicação falável e um plano de recursos visuais para acompanhar a 
 Retorne SOMENTE JSON válido, sem markdown, com este formato exato:
 {"answer":"explicação falável de 3 a 6 frases","title":"título curto","visuals":[{"type":"diagram|steps|concepts|comparison|timeline|equation","title":"título do painel","caption":"legenda curta","items":[{"label":"rótulo curto","detail":"descrição de até 12 palavras"}]}]}
 Inclua de 1 a 3 painéis visuais. Cada painel deve ter 2 a 5 items. Escolha o tipo adequado ao assunto. Use diagram para processos/partes de um sistema, steps para sequência, concepts para conceitos, comparison para diferenças, timeline para história e equation para matemática. Não invente imagens externas nem URLs. Priorize visualizações que possam ser desenhadas diretamente na interface. O texto de answer deve ser natural para voz, sem listas nem markdown. Não inclua conteúdo perigoso; para temas médicos, financeiros ou de segurança, mantenha cautela e contexto."""
-    messages = get_messages(req, visual_system)
+    messages = get_messages(req, visual_system + tools.system_addendum)
     errors = []
     raw = None
     if GROQ_API_KEY:
@@ -316,6 +324,17 @@ Inclua de 1 a 3 painéis visuais. Cada painel deve ter 2 a 5 items. Escolha o ti
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest):
+    tools = run_tools_phase(req.messages)
+    if tools.direct_answer:
+        return {
+            "id": f"chatcmpl-{uuid.uuid4()}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "jarvis-connections",
+            "provider": "jarvis-connections",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": tools.direct_answer}, "finish_reason": "stop"}],
+            "actions": tools.actions,
+        }
     if not GROQ_API_KEY and not GEMINI_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -328,7 +347,7 @@ async def chat_completions(req: ChatRequest):
             detail="Envie pelo menos uma mensagem.",
         )
 
-    messages = get_messages(req)
+    messages = get_messages(req, SYSTEM_PROMPT + tools.system_addendum)
     started = time.time()
     errors = []
 

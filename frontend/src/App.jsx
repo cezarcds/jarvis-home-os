@@ -2,10 +2,11 @@ import React, { useCallback, useRef, useState } from "react";
 import CoreRings from "./components/CoreRings.jsx";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
-import { askJarvis, askVisualExplain } from "./lib/api.js";
+import { askJarvisWithActions, askVisualExplain } from "./lib/api.js";
 import VisualExplain from "./components/VisualExplain.jsx";
 import SceneManager from "./scenes/SceneManager.jsx";
 import { useSceneManager } from "./scenes/useSceneManager.js";
+import AdminHost from "./admin/AdminHost.jsx";
 
 const IDLE_SECONDS = Number(import.meta.env.VITE_IDLE_SECONDS) || 45;
 const now = () => new Date().toLocaleTimeString("pt-BR");
@@ -19,6 +20,8 @@ export default function App() {
   const [visualMode, setVisualMode] = useState(false);
   const [logs, setLogs] = useState([{ time: now(), msg: "Sistema inicializado.", level: "info" }]);
   const history = useRef([]);
+  const [pendingActions, setPendingActions] = useState([]);
+  const lastQuestion = useRef("");
 
   const log = useCallback((msg, level = "info") => {
     setLogs((l) => [...l.slice(-100), { time: now(), msg, level }]);
@@ -35,6 +38,8 @@ export default function App() {
 
   const handleTranscript = useCallback(async (text) => {
     setUserText(text);
+    lastQuestion.current = text;
+    setPendingActions([]);
     log(`Comando: "${text}"`);
     setStatus("PROCESSING");
     setVisualMode(true);
@@ -46,11 +51,14 @@ export default function App() {
       try {
         const explanation = await askVisualExplain(history.current.slice(-12));
         answer = explanation.answer;
+        setPendingActions(explanation.actions || []);
         setVisualData(explanation);
         log("Palco visual preparado.");
       } catch (visualErr) {
         console.warn("[JARVIS] Visual Explain indisponível; usando resposta simples.", visualErr);
-        answer = await askJarvis(history.current.slice(-12));
+        const simple = await askJarvisWithActions(history.current.slice(-12));
+        answer = simple.text;
+        setPendingActions(simple.actions);
         setVisualData(null);
         log("Resposta recebida em modo simples.");
       }
@@ -64,6 +72,13 @@ export default function App() {
       setVisualLoading(false);
     }
   }, [log, handleError]);
+
+  // Depois que uma conta é autorizada pelo popup, repete a pergunta que pediu a conexão.
+  const onConnected = useCallback((provider) => {
+    log(`Conta ${provider} conectada.`);
+    setPendingActions([]);
+    if (lastQuestion.current) handleTranscript(lastQuestion.current);
+  }, [log, handleTranscript]);
 
   const speech = useSpeech({
     onFinalTranscript: handleTranscript,
@@ -137,6 +152,7 @@ export default function App() {
           </section>
           {!visualMode && <RightConsole logs={logs} />}
         </main>
+        <AdminHost actions={pendingActions} onDismiss={() => setPendingActions([])} onConnected={onConnected} />
       </div>
     </SceneManager>
   );
