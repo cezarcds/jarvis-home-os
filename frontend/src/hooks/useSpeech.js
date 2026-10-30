@@ -4,6 +4,7 @@ const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.
 
 export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError }) {
   const recRef = useRef(null);
+  const tokenRef = useRef(0); // identifica a fala "viva"; callbacks de falas antigas são ignorados
   const [voice, setVoice] = useState(null);
   const supported = Boolean(SR);
 
@@ -19,6 +20,7 @@ export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError
 
   const startListening = useCallback(() => {
     if (!SR) return onError?.("Reconhecimento de voz não suportado. Use Chrome ou Edge.");
+    tokenRef.current++; // invalida qualquer fala/beat em andamento
     window.speechSynthesis.cancel();
     const rec = new SR();
     rec.lang = "pt-BR";
@@ -51,7 +53,71 @@ export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError
     [voice, onSpeakStart, onSpeakEnd]
   );
 
-  const stopSpeaking = useCallback(() => window.speechSynthesis.cancel(), []);
+  // Fala um trecho (beat) e avisa quando termina. Usado pelo palco para
+  // sincronizar a imagem com a voz, trecho a trecho.
+  //  - onStart: a voz começou
+  //  - onProgress(0..1): quanto do trecho já foi falado (boundary real ou estimativa)
+  //  - onEnd: a voz terminou (nunca dispara se o trecho foi cancelado/substituído)
+  const speakBeat = useCallback(
+    (text, { onStart, onProgress, onEnd } = {}) => {
+      const synth = window.speechSynthesis;
+      synth.cancel();
+      const token = ++tokenRef.current;
+      const alive = () => token === tokenRef.current;
+      const estMs = Math.max(1400, text.length * 62);
+      let started = false, boundarySeen = false, t0 = 0, tick = null, watchdog = null;
+      const clear = () => { clearInterval(tick); clearTimeout(watchdog); };
 
-  return { supported, startListening, stopListening, stopSpeaking, speak };
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "pt-BR";
+      u.rate = 1.0;
+      u.pitch = 0.8;
+      if (voice) u.voice = voice;
+      u.onstart = () => {
+        if (!alive()) return;
+        started = true;
+        t0 = performance.now();
+        clearTimeout(watchdog);
+        onStart?.();
+        tick = setInterval(() => {
+          if (!boundarySeen && alive()) onProgress?.(Math.min(0.97, (performance.now() - t0) / estMs));
+        }, 120);
+      };
+      u.onboundary = (e) => {
+        if (!alive() || (e.name && e.name !== "word")) return;
+        boundarySeen = true;
+        onProgress?.(Math.min(0.99, e.charIndex / text.length));
+      };
+      u.onend = () => {
+        clear();
+        if (!alive()) return;
+        onProgress?.(1);
+        onEnd?.();
+      };
+      u.onerror = (e) => {
+        clear();
+        if (!alive() || e.error === "canceled" || e.error === "interrupted") return;
+        console.warn("[JARVIS] Síntese de voz falhou:", e.error);
+        onEnd?.();
+      };
+      // Se o navegador nunca iniciar a voz (sem vozes instaladas, p.ex.), o palco não trava.
+      watchdog = setTimeout(() => {
+        if (!alive() || started) return;
+        synth.cancel();
+        onStart?.();
+        const t = performance.now();
+        tick = setInterval(() => alive() && onProgress?.(Math.min(0.97, (performance.now() - t) / estMs)), 120);
+        setTimeout(() => { clear(); if (alive()) { onProgress?.(1); onEnd?.(); } }, estMs);
+      }, 4000);
+      synth.speak(u);
+    },
+    [voice]
+  );
+
+  const cancelSpeech = useCallback(() => {
+    tokenRef.current++;
+    window.speechSynthesis.cancel();
+  }, []);
+
+  return { supported, startListening, stopListening, speak, speakBeat, cancelSpeech };
 }

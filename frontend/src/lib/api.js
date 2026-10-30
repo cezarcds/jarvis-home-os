@@ -86,3 +86,32 @@ export const createRoutine = (r) => request("/v1/routines", { method: "POST", bo
 export const updateRoutine = (id, r) => request(`/v1/routines/${id}`, { method: "PUT", body: JSON.stringify(r) });
 export const deleteRoutine = (id) => request(`/v1/routines/${id}`, { method: "DELETE" });
 export const runRoutine = (id) => request(`/v1/routines/${id}/run`, { method: "POST" });
+
+// ---------- Motor de cenas (diretor visual) ----------
+
+export async function askScene(messages, previous = null) {
+  let res;
+  try {
+    res = await fetch(`${API_URL}/v1/scene`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, previous }),
+    });
+  } catch (err) {
+    console.error("[JARVIS] Falha de rede (/v1/scene)", err);
+    throw new Error("Sem conexão com o núcleo. Verifique se o backend está ativo.");
+  }
+  if (!res.ok) {
+    console.error(`[JARVIS] Erro HTTP ${res.status}`, await res.text());
+    throw new Error(`Núcleo respondeu com erro ${res.status}.`);
+  }
+  const scene = await res.json();
+  if (!scene?.beats?.length) throw new Error("A cena veio vazia.");
+  return scene;
+}
+
+export async function searchMedia(query, kind = "image") {
+  const res = await fetch(`${API_URL}/v1/media/search?q=${encodeURIComponent(query)}&kind=${kind}`);
+  if (!res.ok) throw new Error(`Mídia HTTP ${res.status}`);
+  return (await res.json()).item || null;
+}
