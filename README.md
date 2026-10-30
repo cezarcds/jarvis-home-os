@@ -42,3 +42,7 @@ Abra http://localhost:5173 no **Chrome ou Edge** (Firefox não tem SpeechRecogni
 - Clique, toque, tecla ou mover o mouse acordam o sistema. **Alt+I** alterna IDLE/ACTIVE para testar.
 - Variáveis opcionais em `frontend/.env`: `VITE_IDLE_SECONDS=45`, `VITE_OWNER_NAME=Seu Nome`.
 - Novas cenas: registre o componente em `OVERLAYS` (`scenes/SceneManager.jsx`) e use `goTo("NOME")`.
+
+## Ações, voz sem clique e visão de tela
+
+Veja `ACOES_VOZ_E_TELA.md`. Para iniciar tudo: `iniciar_jarvis.bat`.

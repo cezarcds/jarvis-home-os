@@ -12,3 +12,8 @@ google-api-python-client>=2.140
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
 google-analytics-data>=0.18
+
+# Ações e visão de tela
+mss>=9.0
+pillow>=10.4
+numpy>=1.26

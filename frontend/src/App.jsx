@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import CoreRings from "./components/CoreRings.jsx";
+import CoreOrb from "./core/CoreOrb.jsx";
+import { useVoiceLevel } from "./core/useVoiceLevel.js";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
+import { handsFreeSupported, useHandsFree } from "./hooks/useHandsFree.js";
+import { isLocalCommand } from "./lib/localIntents.js";
 import { askAssistant, askScene } from "./lib/api.js";
 import SceneStage from "./stage/SceneStage.jsx";
 import { useScenePlayer } from "./stage/useScenePlayer.js";
@@ -29,6 +33,13 @@ const CLOSE_RE =
 const ADMIN_RE =
   /(painel de rotinas|\badmin\b|gerenciar rotinas|editar rotinas|abr\w* (as |a )?(minhas )?rotinas)/;
 
+// Dentro de uma cena, só estes comandos a fecham ("ok" e "obrigado" NÃO, para um ruído não derrubar a cena).
+const VISUAL_CLOSE_RE =
+  /^(jarvis )?(fechar|fecha|pode fechar|voltar|sair|encerrar|tchau|dispensado)( jarvis)?$/;
+// Interjeições soltas dentro de uma cena: não fecham nem remontam nada.
+const FILLER_RE =
+  /^(jarvis )?(ok|okay|certo|entendi|beleza|legal|uhum|aham|sim|nao|obrigado|obrigada|valeu|hum|hmm)( jarvis)?$/;
+
 const newSessionId = () =>
   crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
 
@@ -43,6 +54,8 @@ function summarize(scene) {
 
 export default function App() {
   const [status, setStatus] = useState("STANDBY");
+  // Intensidade da sua voz (ref, sem re-render): o núcleo 3D pulsa e se expande com ela.
+  const voiceLevel = useVoiceLevel(status === "LISTENING");
   const [userText, setUserText] = useState("");
   const [reply, setReply] = useState(
     "Sistema em espera. Toque no núcleo para falar."
@@ -52,6 +65,14 @@ export default function App() {
   ]);
   const [briefing, setBriefing] = useState(null);
   const [typed, setTyped] = useState("");
+
+  // Voz sem clique ("Jarvis, ...") e visão de tela
+  const [handsFreeOn, setHandsFreeOn] = useState(
+    () => handsFreeSupported && localStorage.getItem("jarvis.handsfree") !== "0"
+  );
+  const [ptt, setPtt] = useState(false); // microfone do clique ativo: o canal livre fica mudo para não duplicar
+  const [vision, setVision] = useState({ mode: "off", active: false, label: "" });
+  const visionRef = useRef({ mode: "off", until: 0 });
 
   // Motor de cenas (palco visual)
   const [visualScene, setVisualScene] = useState(null);
@@ -64,6 +85,10 @@ export default function App() {
   const speechRef = useRef(null);
   const sceneRef = useRef("ACTIVE");
   const previousScene = useRef(null);
+  // Refs lidas dentro de handleTranscript, que não deve ficar presa a valores antigos.
+  const visualActiveRef = useRef(false);
+  const closeVisualRef = useRef(null);
+  visualActiveRef.current = visualMode && Boolean(visualScene);
 
   const log = useCallback((msg, level = "info") => {
     setLogs((l) => [...l.slice(-100), { time: now(), msg, level }]);
@@ -89,6 +114,7 @@ export default function App() {
     (msg) => {
       log(msg, "warn");
       setReply(msg);
+      setPtt(false);
       setSceneLoading(false);
       setDim(false);
       setStatus("STANDBY");
@@ -113,6 +139,15 @@ export default function App() {
           content: r.text || "(rotina exibida na tela)",
         });
         if (r.text) setReply(r.text);
+        if (r.acao) log(`Ação: ${r.acao.tipo}${r.acao.app ? ` (${r.acao.app})` : ""}`);
+        if (r.vision) {
+          setVision(r.vision);
+          visionRef.current = {
+            mode: r.vision.mode,
+            until: r.vision.active ? Date.now() + r.vision.follow_up_seconds * 1000 : 0,
+          };
+          if (r.kind === "visao" && r.vision.label) log(`Tela analisada: ${r.vision.label}`);
+        }
         if (r.scene) {
           setBriefing(r.scene);
           goTo("BRIEFING");
@@ -189,6 +224,27 @@ export default function App() {
         setStatus("STANDBY");
         return;
       }
+      // Ações no computador e visão de tela vão direto ao assistente (backend)
+      const v = visionRef.current;
+      if (isLocalCommand(n, v.mode === "on" || Date.now() < v.until)) {
+        send(text);
+        return;
+      }
+      // Já estamos numa cena: qualquer fala nova é continuação ("e a segunda?", "fale mais"),
+      // então remonta a cena em vez de só responder por voz. Para rodar uma rotina, feche a cena
+      // antes (Esc ou "fechar"). Ações e visão de tela (acima) têm prioridade sobre isto.
+      if (visualActiveRef.current) {
+        if (VISUAL_CLOSE_RE.test(n)) {
+          closeVisualRef.current?.();
+          return;
+        }
+        if (FILLER_RE.test(n)) {
+          setStatus("STANDBY");
+          return;
+        }
+        sendVisual(text);
+        return;
+      }
       // Perguntas que pedem explicação visual → motor de cenas
       // Rotinas / comandos de casa → assistente atual
       // Heurística simples: se parece pergunta de conhecimento, usa cena
@@ -212,6 +268,7 @@ export default function App() {
     onFinalTranscript: handleTranscript,
     onInterim: setUserText,
     onListenEnd: (hadText) => {
+      setPtt(false);
       if (hadText) return; // a transcrição segue o fluxo normal (PROCESSING)
       setDim(false);
       setStatus((s) => (s === "LISTENING" ? "STANDBY" : s));
@@ -221,6 +278,36 @@ export default function App() {
     onError: handleError,
   });
   speechRef.current = speech;
+
+  const hf = useHandsFree({
+    enabled: handsFreeOn,
+    muted: status === "PROCESSING" || status === "SPEAKING" || ptt,
+    onWake: () => {
+      wake();
+      setUserText("");
+      setStatus("LISTENING");
+      log("Palavra de ativação detectada.");
+    },
+    onSleep: () => setStatus((s) => (s === "LISTENING" ? "STANDBY" : s)),
+    onTranscript: (text) => {
+      wake();
+      handleTranscript(text);
+    },
+    onError: (m) => log(m, "warn"),
+  });
+
+  // Depois que o Jarvis termina de falar, abre uma janela curta para a resposta sem precisar chamar "Jarvis" de novo.
+  const prevStatus = useRef(status);
+  useEffect(() => {
+    if (prevStatus.current === "SPEAKING" && status === "STANDBY" && handsFreeOn) hf.followUp(8);
+    prevStatus.current = status;
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (hf.state === "listening") setReply((r) => (r.startsWith("Sistema em espera") ? 'Diga "Jarvis" e o comando, ou toque no núcleo.' : r));
+    if (hf.state === "loading") log("Carregando o reconhecimento de voz (a primeira vez baixa o modelo)...");
+    if (hf.state === "unavailable") log("Voz livre indisponível: instale o faster-whisper (veja o README).", "warn");
+  }, [hf.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const media = useMediaResolver(visualScene);
   const player = useScenePlayer({
@@ -245,6 +332,7 @@ export default function App() {
     previousScene.current = null;
     setStatus("STANDBY");
   }, [player, speech]);
+  closeVisualRef.current = closeVisualMode;
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && visualMode && closeVisualMode();
@@ -254,12 +342,20 @@ export default function App() {
 
   const onCoreClick = () => {
     if (status === "LISTENING") {
+      if (!ptt) {
+        // Estava esperando o comando por voz livre: clicar cancela.
+        hf.sleep();
+        setStatus("STANDBY");
+        return;
+      }
       // Clicar de novo = "terminei": envia o que já foi dito (ou volta ao repouso se nada foi captado).
       speech.stopListening();
       return;
     }
     if (status === "PROCESSING") return;
     player.pause?.();
+    hf.sleep();
+    setPtt(true);
     setUserText("");
     setStatus("LISTENING");
     log("Microfone ativo.");
@@ -323,6 +419,25 @@ export default function App() {
             >
               ROTINAS
             </button>
+            {vision.active && (
+              <span className="text-hud-amber tracking-[0.25em]" title="O Jarvis está analisando a sua tela. Diga: para de olhar a tela.">
+                ◉ TELA
+              </span>
+            )}
+            {handsFreeSupported && (
+              <button
+                onClick={() =>
+                  setHandsFreeOn((v) => {
+                    localStorage.setItem("jarvis.handsfree", v ? "0" : "1");
+                    return !v;
+                  })
+                }
+                className="tracking-[0.2em] opacity-70 hover:opacity-100"
+                title='Voz livre: diga "Jarvis" seguido do comando'
+              >
+                MIC LIVRE {handsFreeOn ? (hf.state === "awake" ? "· OUVINDO" : hf.state === "listening" ? "· ON" : "· …") : "· OFF"}
+              </button>
+            )}
             {visualMode && (
               <button
                 onClick={closeVisualMode}
@@ -342,7 +457,7 @@ export default function App() {
           {!visualMode && <LeftPanels />}
 
           <div className="flex flex-col items-center gap-6 flex-1 min-w-0">
-            {!visualMode && <CoreRings status={status} onClick={onCoreClick} />}
+            {!visualMode && <CoreOrb status={status} onClick={onCoreClick} levelRef={voiceLevel} />}
 
             {visualMode ? (
               <SceneStage

@@ -1,0 +1,3 @@
+# Voz sem clique: palavra de ativação "Jarvis" + transcrição local (Whisper).
+# Separado para o Jarvis abrir mesmo se o seu Python ainda não tiver pacote do faster-whisper.
+faster-whisper>=1.0

@@ -24,7 +24,10 @@ def isolated_env(tmp_path, monkeypatch):
     admin_auth.reset_state()
     oauth._pending.clear()
     oauth._refresh_locks.clear()
+    from actions import handler
+    handler.reset_state()  # sessões de visão não vazam entre testes
     yield
+    handler.reset_state()
 
 
 @pytest.fixture

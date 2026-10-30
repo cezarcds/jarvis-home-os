@@ -3,7 +3,10 @@ para que o .env carregado pelo main.py e os testes funcionem em qualquer ordem."
 import os
 from pathlib import Path
 
-DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+DEFAULT_ORIGINS = (
+    "http://localhost:5173", "http://127.0.0.1:5173",  # npm run dev
+    "http://localhost:8000", "http://127.0.0.1:8000",  # HUD compilado, servido pelo backend
+)
 
 
 def _inside_git_repo(path: Path) -> bool:

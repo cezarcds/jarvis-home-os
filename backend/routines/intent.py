@@ -55,6 +55,8 @@ _SYSTEM = (
     "Use 'ferramenta' para consultas pontuais de dados pessoais (ex.: 'que reuniões tenho amanhã?' -> agenda.amanha; "
     "'tenho email importante?' -> gmail.para_responder). Use 'conversa' para papo, perguntas gerais, "
     "pedidos de explicação ou qualquer coisa que não dependa dos dados pessoais das fontes. "
+    "Use 'ferramenta' também para pedir uma AÇÃO no computador (ex.: 'abre o profit' -> app.abrir com params "
+    "{\"app\":\"profit\"}; 'organiza a tela' -> tela.organizar). "
     "Na dúvida, escolha 'conversa'. 'confianca' vai de 0 a 1."
 )
 

@@ -11,7 +11,8 @@ import llm
 from . import creator, engine, intent, store
 from .models import Routine
 from .textutil import normalize
-from .tools import ToolError, catalog
+from .tools import REGISTRY, ToolError, catalog
+from actions import handler as actions_handler
 from .tools.util import DIAS, TZ
 
 log = logging.getLogger("jarvis.api")
@@ -90,6 +91,16 @@ async def assistant(req: AssistantRequest):
             return {**_resposta_bloco(txt, bloco, "Confirme a rotina", "rascunho"), "provider": None}
         creator.clear_pending(sid)  # assunto novo: descarta o rascunho
 
+    # 1b) Ações no computador (abrir programas, organizar a tela) e visão de tela
+    try:
+        acao = await actions_handler.try_handle(text, sid, history)
+    except Exception:  # noqa: BLE001 - nunca cair no chat fingindo que a ação foi feita
+        log.exception("Falha ao executar ação local")
+        return {"kind": "acao", "text": "Algo deu errado ao executar isso. Os detalhes estão no log do backend.",
+                "scene": None, "provider": None}
+    if acao:
+        return acao
+
     # 2) Criar/editar/apagar rotina por voz
     if creator.eh_comando_de_rotina(text):
         txt, bloco = await creator.rascunhar(sid, text)
@@ -109,9 +120,12 @@ async def assistant(req: AssistantRequest):
         log.info("Rotina '%s' (gatilho direto)", alvo.id)
         return {**_resposta_rotina(await engine.run_routine(alvo)), "provider": None}
 
-    decisao = await intent.llm_route(text, rotinas)
+    # No modo análise de tela, pula o roteamento por LLM (uma chamada a menos por pergunta).
+    decisao = None if actions_handler.vision_active(sid) else await intent.llm_route(text, rotinas)
     if decisao:
         log.info("Roteamento LLM: %s", decisao)
+        if decisao["tipo"] == "ferramenta" and REGISTRY[decisao["id"]].risco != "leitura":
+            return await actions_handler.run_tool(decisao["id"], decisao["params"], sid)
         if decisao["tipo"] == "rotina":
             r = next(x for x in rotinas if x.id == decisao["id"])
         else:
@@ -121,6 +135,11 @@ async def assistant(req: AssistantRequest):
                 r = None
         if r:
             return {**_resposta_rotina(await engine.run_routine(r)), "provider": None}
+
+    # 4b) Pergunta comum durante o modo análise (ou logo depois de olhar a tela)
+    visao = await actions_handler.follow_up_vision(text, sid, history)
+    if visao:
+        return visao
 
     # 5) Conversa comum
     try:
@@ -148,6 +167,8 @@ def _validar_salvar(r: Routine) -> Routine:
         t = REGISTRY.get(s.ferramenta)
         if not t:
             raise HTTPException(422, f"Ferramenta inexistente: {s.ferramenta}")
+        if t.risco != "leitura":
+            raise HTTPException(422, f"'{s.ferramenta}' é uma ação e ainda não pode ser usada em rotinas.")
         try:
             coerce_params(t, s.params)
         except ToolError as exc:

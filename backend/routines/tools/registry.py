@@ -29,7 +29,7 @@ class Tool:
     descricao: str
     params: List[Param]
     fn: Callable
-    risco: str = "leitura"  # leitura | escrita | destrutiva (só "leitura" existe por enquanto)
+    risco: str = "leitura"  # leitura | acao_local (abrir programas, janelas); rotinas só executam "leitura"
     timeout: float = 25.0
     check: Optional[Callable[[], Tuple[bool, str]]] = None
 
@@ -64,8 +64,8 @@ def tool(name, rotulo, descricao, params=(), risco="leitura", timeout=25.0, chec
     return deco
 
 
-def catalog(only_available: bool = False) -> List[Dict[str, Any]]:
-    specs = [t.spec() for t in REGISTRY.values()]
+def catalog(only_available: bool = False, leitura_only: bool = False) -> List[Dict[str, Any]]:
+    specs = [t.spec() for t in REGISTRY.values() if not leitura_only or t.risco == "leitura"]
     return [s for s in specs if s["disponivel"]] if only_available else specs
 
 

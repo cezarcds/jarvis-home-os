@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Literal, Optional
 
 import httpx
@@ -20,6 +22,9 @@ from media import diagnose, search_media_all  # noqa: E402
 from scene_schema import extract_json, fallback_scene, sanitize_scene, visual_blocks  # noqa: E402
 
 from routines.api import router as routines_router
+from voice.ws import router as voice_router  # noqa: E402
+from actions import config as actions_config, hud, winapi  # noqa: E402
+from actions.api import router as actions_router  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,13 +64,35 @@ SYSTEM_PROMPT = (
     "Priorize respostas diretas e naturais."
 )
 
-app = FastAPI(title="OpenJarvis Home OS")
+def _preload_whisper() -> None:
+    """Carrega o Whisper em segundo plano (na 1ª vez baixa o modelo) para o 1º 'Jarvis' já ser rápido."""
+    from voice import stt
+
+    ok, _ = stt.available()
+    if ok and actions_config.voice_enabled():
+        try:
+            stt.get_transcriber().load()
+        except Exception:  # noqa: BLE001
+            log.exception("Não consegui pré-carregar o Whisper (a voz tenta de novo quando alguém conectar).")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    asyncio.create_task(asyncio.to_thread(_preload_whisper))
+    if actions_config.open_hud_on_start():
+        asyncio.create_task(asyncio.to_thread(hud.open_hud_if_needed))
+    yield
+
+
+app = FastAPI(title="OpenJarvis Home OS", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,6 +100,8 @@ app.add_middleware(
 
 app.include_router(connections_router)
 app.include_router(routines_router)  # depois de criar o app e o CORS
+app.include_router(voice_router)
+app.include_router(actions_router)
 
 
 class Message(BaseModel):
@@ -95,6 +124,10 @@ async def health():
         "fallback_model": GEMINI_MODEL,
         "groq_configured": bool(GROQ_API_KEY),
         "gemini_configured": bool(GEMINI_API_KEY),
+        "actions_enabled": actions_config.actions_enabled(),
+        "vision_enabled": actions_config.vision_enabled(),
+        "voice_enabled": actions_config.voice_enabled(),
+        "windows_control": winapi.AVAILABLE,
     }
 
 
@@ -596,3 +629,10 @@ async def media_search(q: str, kind: str = "image"):
 async def media_diagnose(q: str = "nuclear power plant"):
     """Testa cada provedor de mídia isoladamente. Abra no navegador para ver quem está falhando."""
     return await diagnose(q)
+
+
+# HUD compilado (npm run build): o backend serve na mesma porta. Precisa ser a última rota.
+if hud.dist_available():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=hud.dist_dir(), html=True), name="hud")

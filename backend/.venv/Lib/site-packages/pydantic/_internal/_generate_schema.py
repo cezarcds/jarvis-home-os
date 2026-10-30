@@ -109,7 +109,7 @@ from ._fields import (
     update_field_from_config,
 )
 from ._forward_ref import PydanticRecursiveRef
-from ._generics import get_standard_typevars_map, replace_types
+from ._generics import get_model_typevars_map, get_standard_typevars_map, replace_types
 from ._import_utils import import_cached_base_model, import_cached_field_info
 from ._mock_val_ser import MockCoreSchema
 from ._namespace_utils import NamespacesTuple, NsResolver
@@ -884,21 +884,22 @@ class GenerateSchema:
                             cls,
                             config_wrapper=self._config_wrapper,
                             ns_resolver=self._ns_resolver,
-                            typevars_map=self._typevars_map or {},
+                            typevars_map=get_model_typevars_map(cls),
                         )
                     except NameError as e:
                         raise PydanticUndefinedAnnotation.from_name_error(e) from e
 
                 decorators = cls.__pydantic_decorators__
                 computed_fields = decorators.computed_fields
-                check_decorator_fields_exist(
-                    chain(
-                        decorators.field_validators.values(),
-                        decorators.field_serializers.values(),
-                        decorators.validators.values(),
-                    ),
-                    {*fields.keys(), *computed_fields.keys()},
-                )
+                if decorators.field_validators or decorators.field_serializers or decorators.validators:
+                    check_decorator_fields_exist(
+                        chain(
+                            decorators.field_validators.values(),
+                            decorators.field_serializers.values(),
+                            decorators.validators.values(),
+                        ),
+                        {*fields.keys(), *computed_fields.keys()},
+                    )
 
                 model_validators = decorators.model_validators.values()
 
@@ -1098,6 +1099,9 @@ class GenerateSchema:
     def _generate_schema_inner(self, obj: Any, origin: Any | None = PydanticUndefined) -> core_schema.CoreSchema:
         if typing_objects.is_self(obj):
             obj = self._resolve_self_type(obj)
+            # The resolved type can be a parametrized generic (e.g. `GenericDataclass[int]`),
+            # so the origin provided by the caller (computed on `Self`) is stale:
+            origin = get_origin(obj)
 
         origin = origin if origin is not PydanticUndefined else get_origin(obj)
 

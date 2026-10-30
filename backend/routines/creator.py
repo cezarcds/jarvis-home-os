@@ -82,10 +82,10 @@ _SYSTEM = (
 
 def _catalogo_texto() -> str:
     linhas = ["CATÁLOGO DE FERRAMENTAS DISPONÍVEIS:"]
-    for t in catalog(only_available=True):
+    for t in catalog(only_available=True, leitura_only=True):
         ps = "; ".join(f"{p['nome']}:{p['tipo']}={p['default']}" for p in t["params"])
         linhas.append(f"- {t['nome']} ({t['rotulo']}): {t['descricao']} | params: {ps or 'nenhum'}")
-    indisp = [t for t in catalog() if not t["disponivel"]]
+    indisp = [t for t in catalog(leitura_only=True) if not t["disponivel"]]
     if indisp:
         linhas.append("INDISPONÍVEIS AGORA (trate como 'faltando'): " + ", ".join(t["nome"] for t in indisp))
     return "\n".join(linhas)

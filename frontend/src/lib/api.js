@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Em desenvolvimento (npm run dev, porta 5173) o backend está em :8000; com o HUD compilado
+// o próprio backend serve a página, então a origem é a mesma.
+export const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (window.location.port === "5173" ? "http://localhost:8000" : window.location.origin);
 
 export async function askJarvis(messages) {
   console.log("[JARVIS] POST /v1/chat/completions", messages);
@@ -80,6 +84,7 @@ export function askAssistant(messages, sessionId) {
   });
 }
 
+export const getVoiceStatus = () => request("/v1/voice/status");
 export const listRoutines = () => request("/v1/routines");
 export const listTools = () => request("/v1/tools");
 export const createRoutine = (r) => request("/v1/routines", { method: "POST", body: JSON.stringify(r) });

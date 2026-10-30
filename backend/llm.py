@@ -3,6 +3,7 @@
 Ordem dos provedores: variável LLM_ORDER (padrão "groq,gemini").
 Para Gemini primeiro: LLM_ORDER=gemini,groq
 """
+import base64
 import json
 import logging
 import os
@@ -61,9 +62,10 @@ async def _groq(messages, system, max_tokens, temperature, timeout) -> str:
     return content.strip()
 
 
-async def _gemini(messages, system, max_tokens, temperature, timeout) -> str:
+async def _gemini(messages, system, max_tokens, temperature, timeout, images=None) -> str:
     # Aceita "gemini/gemini-2.5-flash" (estilo litellm) e "models/..." sem quebrar a URL.
-    model = _env("GEMINI_MODEL", "gemini-2.5-flash").removeprefix("models/").removeprefix("gemini/")
+    model = (_env("GEMINI_VISION_MODEL") if images else "") or _env("GEMINI_MODEL", "gemini-2.5-flash")
+    model = model.removeprefix("models/").removeprefix("gemini/")
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
         for m in messages
@@ -71,9 +73,19 @@ async def _gemini(messages, system, max_tokens, temperature, timeout) -> str:
     ]
     if not contents:
         raise LLMError("Sem mensagens para o Gemini")
+    if images:  # as imagens vão junto da última fala do usuário
+        last_user = next((c for c in reversed(contents) if c["role"] == "user"), contents[-1])
+        for img in images:
+            last_user["parts"].append(
+                {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(img).decode("ascii")}}
+            )
     gen = {"temperature": temperature, "maxOutputTokens": max(256, min(max_tokens, 4096))}
     if "2.5-flash" in model:
-        gen["thinkingConfig"] = {"thinkingBudget": 0}  # respostas rápidas, sem gastar tokens pensando
+        # Respostas rápidas (sem pensar). Para olhar gráficos, GEMINI_VISION_THINKING=512 melhora a análise.
+        budget = _env("GEMINI_VISION_THINKING", "0") if images else "0"
+        gen["thinkingConfig"] = {"thinkingBudget": int(budget) if budget.isdigit() else 0}
+        if images and gen["thinkingConfig"]["thinkingBudget"]:
+            gen["maxOutputTokens"] = max(gen["maxOutputTokens"], 1024 + gen["thinkingConfig"]["thinkingBudget"])
     payload = {"contents": contents, "generationConfig": gen}
     if system:
         payload["systemInstruction"] = {"parts": [{"text": system}]}
@@ -98,16 +110,25 @@ async def complete(
     max_tokens: int = 400,
     temperature: float = 0.7,
     timeout: float = 20.0,
+    images: Optional[List[bytes]] = None,
 ) -> Tuple[str, str]:
-    """Retorna (texto, provedor). Tenta cada provedor na ordem até um responder."""
+    """Retorna (texto, provedor). Tenta cada provedor na ordem até um responder.
+
+    Com `images` (JPEG), só o Gemini serve: o Groq/GPT-OSS não enxerga imagem.
+    """
     order = provider_order()
+    if images:
+        order = [p for p in order if p == "gemini"]
+        if not order:
+            raise LLMError("Ver a tela precisa de GEMINI_API_KEY no .env")
     if not order:
         raise LLMError("Configure GROQ_API_KEY ou GEMINI_API_KEY no .env")
     errors = []
     for name in order:
         try:
-            fn = _groq if name == "groq" else _gemini
-            return await fn(messages, system, max_tokens, temperature, timeout), name
+            if name == "groq":
+                return await _groq(messages, system, max_tokens, temperature, timeout), name
+            return await _gemini(messages, system, max_tokens, temperature, timeout, images), name
         except Exception as exc:  # noqa: BLE001 - qualquer falha cai para o próximo
             log.warning("%s falhou: %s", name, str(exc)[:300])
             errors.append(f"{name}: {str(exc)[:200]}")
