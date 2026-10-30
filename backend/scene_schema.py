@@ -286,21 +286,23 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
     for rb in (raw if isinstance(raw, list) else [])[:MAX_BEATS]:
         if not isinstance(rb, dict):
             continue
-        say = _s(rb.get("say"), 420)
+        say = _s(rb.get("say"), 260)
         if not say:
             continue
         layout = _s(rb.get("layout"), 10).lower()
         if layout not in LAYOUTS:
             layout = "diagram" if diagram else ("media" if media else "title")
         # Layouts impossíveis são rebaixados em vez de mostrar um palco vazio.
-        if layout in ("diagram", "split") and not diagram:
+        if layout == "diagram" and not diagram:
+            layout = "chart" if chart else ("eye" if geo else ("media" if media else "title"))
+        if layout == "split" and not (diagram or chart or geo):
             layout = "media" if media else "title"
         if layout == "chart" and not chart:
-            layout = "diagram" if diagram else "title"
+            layout = "diagram" if diagram else ("eye" if geo else "title")
         if layout == "eye" and not geo:
             layout = "diagram" if diagram else "title"
-        if layout in ("media", "split") and not media and diagram:
-            layout = "diagram"
+        if layout in ("media", "split") and not media:
+            layout = "diagram" if diagram else ("chart" if chart else ("eye" if geo else "title"))
 
         def pick(key, valid):
             seen, res = set(), []
@@ -315,7 +317,7 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
         beats.append({
             "say": say,
             "layout": layout,
-            "caption": _s(rb.get("caption"), 90),
+            "caption": _s(rb.get("caption"), 40),
             "media": mid if mid in media_ids else (media[0]["id"] if media and layout in ("media", "split", "title") else None),
             "reveal": pick("reveal", node_ids | point_ids),
             "focus": pick("focus", node_ids | point_ids),

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./stage.css";
 import DiagramLayer from "./DiagramLayer.jsx";
 import MediaLayer from "./MediaLayer.jsx";
@@ -19,7 +19,20 @@ function Subtitle({ beat, progress, finished }) {
   );
 }
 
+// Legendas desligadas por padrão: a explicação é falada e o palco mostra imagens/desenhos.
+function useCaptions() {
+  const [on, setOn] = useState(() => {
+    try { return localStorage.getItem("jarvis.cc") === "1"; } catch { return false; }
+  });
+  const toggle = () => setOn((v) => {
+    try { localStorage.setItem("jarvis.cc", v ? "0" : "1"); } catch { /* sem storage */ }
+    return !v;
+  });
+  return [on, toggle];
+}
+
 export default function SceneStage({ scene, media, player, loading, dim, question, status, notice, onClose }) {
+  const [cc, toggleCc] = useCaptions();
   const entries = media.entries;
   const beat = player.beat;
 
@@ -39,10 +52,9 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
   const mediaId = beat?.media || scene?.media?.[0]?.id;
   const entry = mediaId ? entries[mediaId] : null;
   const hasMedia = entry?.status === "ready";
-  const layout = scene && beat
-    ? effectiveLayout(beat, { hasMedia, hasDiagram: !!scene.diagram, hasChart: !!scene.chart, hasGeo: !!scene.geo })
-    : "title";
-  const rects = rectsFor(layout, hasMedia);
+  const ctx = { hasMedia, hasDiagram: !!scene?.diagram, hasChart: !!scene?.chart, hasGeo: !!scene?.geo };
+  const layout = scene && beat ? effectiveLayout(beat, ctx) : "title";
+  const rects = rectsFor(layout, ctx);
   const mediaRect = rects.media;
   const mediaMode = mediaRect.bg ? "bg" : mediaRect.pip ? "pip" : "pane";
 
@@ -50,9 +62,6 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
     <section className={`st ${dim ? "is-dim" : ""} st-layout-${layout}`} aria-live="polite">
       <div className="st-bg" aria-hidden="true"><div className="st-grid" /><div className="st-horizon" /></div>
 
-      {question && (
-        <div className="st-question"><span>CONSULTA</span><p>{question}</p></div>
-      )}
       {scene && (
         <div className="st-meta">
           <i className={player.playing ? "is-live" : ""} />
@@ -73,7 +82,6 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
           {scene.diagram && (
             <div className="st-pane" style={rectStyle(rects.diagram)}>
               <DiagramLayer diagram={scene.diagram} revealed={player.revealed} focus={player.focus} active={rects.diagram.o > 0.5} />
-              {rects.diagram.o > 0.5 && beat?.caption && layout !== "split" && <div className="st-caption">{beat.caption}</div>}
             </div>
           )}
           {/* gráfico */}
@@ -119,10 +127,11 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
               <button type="button" onClick={player.prev} title="Anterior (←)">‹</button>
               <button type="button" onClick={player.toggle} title="Pausar/retomar (espaço)">{player.playing ? "❚❚" : player.finished ? "↻" : "▶"}</button>
               <button type="button" onClick={player.next} title="Próximo (→)">›</button>
+              <button type="button" className={cc ? "is-on" : ""} onClick={toggleCc} title="Legendas (texto da fala)">CC</button>
               {onClose && <button type="button" onClick={onClose} title="Fechar (Esc)">×</button>}
             </div>
           </div>
-          <Subtitle beat={beat} progress={player.progress} finished={player.finished && !player.playing} />
+          {cc && <Subtitle beat={beat} progress={player.progress} finished={player.finished && !player.playing} />}
         </footer>
       )}
     </section>

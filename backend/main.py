@@ -426,13 +426,16 @@ COMO ESCOLHER O QUE MOSTRAR
 - Pergunta simples ou conversacional ("que horas", "me conte uma piada"): cena mínima, 1 ou 2 beats só com layout "title", sem media, diagram, chart nem geo.
 
 COMO DIRIGIR (beats)
-- 3 a 7 beats. Cada "say" tem 1 ou 2 frases curtas e naturais para serem FALADAS (sem markdown, listas, emojis, parênteses ou siglas difíceis de ler). Juntos, os beats formam uma explicação completa e bem encadeada.
-- O primeiro beat contextualiza: layout "media" (ou "title") com a imagem principal. Depois use "diagram" ou "split". O último beat fecha a ideia.
+- A cena é para OLHAR e OUVIR, não para ler. A tela mostra imagens, desenhos, mapas e gráficos; quase não tem texto. Quem explica é a fala.
+- 3 a 7 beats. Cada "say" tem UMA frase curta e natural (no máximo 2, até 180 caracteres) para ser FALADA (sem markdown, listas, emojis, parênteses ou siglas difíceis de ler). Juntos, os beats formam uma explicação completa e bem encadeada.
+- "caption" é opcional e deve ter no máximo 4 palavras (um rótulo, nunca uma frase). Prefira deixar vazio.
+- Mostre VÁRIAS coisas ao mesmo tempo sempre que o assunto permitir: o layout "split" põe a imagem/vídeo ao lado do diagrama, do gráfico ou do mapa. Use "split" como padrão depois do primeiro beat; use "diagram", "chart" ou "eye" sozinhos só quando o visual precisa de tela cheia.
+- O primeiro beat contextualiza: layout "media" (ou "title") com a imagem principal. Depois use "split" ou "diagram". O último beat fecha a ideia.
 - "reveal" lista os ids de nós/pontos que ENTRAM em cena naquele beat, na ordem em que são citados na fala. Todos os nós devem ser revelados em algum beat. "focus" lista 1 ou 2 ids que a fala está destacando agora.
-- layouts: title = título grande sobre a imagem; media = imagem/vídeo grande; diagram = diagrama em tela cheia (mídia vira miniatura); split = mídia à esquerda e diagrama à direita; chart = gráfico; eye = mapa panorâmico (precisa de geo).
-- Coordenadas do diagrama: x de 8 a 92 e y de 15 a 85, em porcentagem do palco. Processos fluem da esquerda para a direita (ou em círculo, se for ciclo). Dê pelo menos 18 pontos de distância entre nós para não se sobreporem.
+- layouts: title = título grande sobre a imagem; media = imagem/vídeo grande; diagram = diagrama em tela cheia (mídia vira miniatura); split = mídia à esquerda e, à direita, o diagrama (ou o gráfico, ou o mapa, se não houver diagrama); chart = gráfico em tela cheia; eye = mapa panorâmico em tela cheia (precisa de geo).
+- Coordenadas do diagrama: x de 8 a 92 e y de 12 a 88, em porcentagem do palco. Processos fluem da esquerda para a direita (ou em círculo, se for ciclo). Dê pelo menos 18 pontos de distância entre nós para não se sobreporem.
 - icon (opcional) escolha entre: atom bolt flame drop gear fan cloud sun wind cell dna brain heart globe building factory chip database network lock rocket planet book scale coin chart person leaf thermo magnet wave flask pipe shield clock eye pin.
-- Rótulos curtos (até 3 palavras). detail com até 14 palavras.
+- Rótulos curtos (até 3 palavras). detail com no máximo 8 palavras, e só quando acrescenta algo que a imagem não mostra.
 
 CONTINUIDADE
 - Se houver "CENA ANTERIOR" e a nova pergunta for um aprofundamento (ex.: "e como ocorre a fissão?"), monte uma cena NOVA focada no detalhe pedido, sem repetir o que já foi mostrado. Se o assunto mudou, ignore a cena anterior.

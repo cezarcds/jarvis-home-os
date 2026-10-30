@@ -136,5 +136,38 @@
     },
     "criada_em": "2026-10-29T19:50:23",
     "atualizada_em": "2026-10-29T19:50:23"
+  },
+  {
+    "id": "vendas",
+    "nome": "Vendas",
+    "descricao": "Saber as minhas vendas online",
+    "gatilhos": [
+      "Ja vendemos quanto?",
+      "Hoje vendemos algo?",
+      "Quatas vendas?"
+    ],
+    "tipo": "leitura",
+    "ativa": true,
+    "passos": [
+      {
+        "id": "resumo",
+        "ferramenta": "analytics.resumo",
+        "params": {
+          "propriedade": "553937603",
+          "dias": "2"
+        }
+      }
+    ],
+    "tela": {
+      "cena": "briefing",
+      "titulo": null,
+      "blocos": []
+    },
+    "fala": {
+      "modo": "resumo",
+      "instrucao": null
+    },
+    "criada_em": "2026-10-29T23:26:59",
+    "atualizada_em": "2026-10-29T23:26:59"
   }
 ]

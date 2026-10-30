@@ -204,6 +204,12 @@ export default function App() {
 
   const speech = useSpeech({
     onFinalTranscript: handleTranscript,
+    onInterim: setUserText,
+    onListenEnd: (hadText) => {
+      if (hadText) return; // a transcrição segue o fluxo normal (PROCESSING)
+      setDim(false);
+      setStatus((s) => (s === "LISTENING" ? "STANDBY" : s));
+    },
     onSpeakStart: () => setStatus("SPEAKING"),
     onSpeakEnd: () => setStatus("STANDBY"),
     onError: handleError,
@@ -242,9 +248,8 @@ export default function App() {
 
   const onCoreClick = () => {
     if (status === "LISTENING") {
+      // Clicar de novo = "terminei": envia o que já foi dito (ou volta ao repouso se nada foi captado).
       speech.stopListening();
-      setDim(false);
-      setStatus("STANDBY");
       return;
     }
     if (status === "PROCESSING") return;
@@ -331,7 +336,7 @@ export default function App() {
           {!visualMode && <LeftPanels />}
 
           <div className="flex flex-col items-center gap-6 flex-1 min-w-0">
-            <CoreRings status={status} onClick={onCoreClick} />
+            {!visualMode && <CoreRings status={status} onClick={onCoreClick} />}
 
             {visualMode ? (
               <SceneStage
@@ -372,6 +377,12 @@ export default function App() {
 
           {!visualMode && <RightConsole logs={logs} />}
         </main>
+
+        {visualMode && (
+          <div className="mic-dock flex items-center justify-center">
+            <CoreRings compact status={status} onClick={onCoreClick} />
+          </div>
+        )}
       </div>
     </SceneManager>
   );

@@ -7,7 +7,43 @@ const STYLE = {
   SPEAKING: { color: "#22d3ee", glow: 0.9, anim: "pulse-ring 0.6s ease-in-out infinite" },
 };
 
-export default function CoreRings({ status, onClick }) {
+/** Versão compacta (modo visual): um botão de microfone pequeno que não disputa espaço com a cena. */
+function MicDock({ status, onClick }) {
+  const s = STYLE[status] || STYLE.STANDBY;
+  return (
+    <button
+      onClick={onClick}
+      aria-label={`Microfone (${status})`}
+      title={`${status} — toque para falar`}
+      className="relative flex items-center justify-center rounded-full transition"
+      style={{
+        width: 64,
+        height: 64,
+        border: `2px solid ${s.color}`,
+        background: `radial-gradient(circle, ${s.color}33, rgba(2,6,13,.85) 75%)`,
+        boxShadow: `0 0 ${30 * s.glow}px ${s.color}`,
+        color: s.color,
+        animation: s.anim,
+      }}
+    >
+      {status === "SPEAKING" ? (
+        <div className="flex items-center gap-[3px]" style={{ height: 24 }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} style={{ width: 3, height: 24, background: s.color, animation: `wave 0.7s ease-in-out ${i * 0.09}s infinite` }} />
+          ))}
+        </div>
+      ) : (
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+export default function CoreRings({ status, onClick, compact = false }) {
+  if (compact) return <MicDock status={status} onClick={onClick} />;
   const s = STYLE[status];
   const fast = status === "PROCESSING";
   const ring = (size, border, anim) => ({

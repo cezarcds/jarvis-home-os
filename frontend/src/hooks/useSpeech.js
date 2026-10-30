@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
 
-export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError }) {
+// Quanto silêncio (ms) depois da última palavra antes de considerar que você terminou de falar.
+// O navegador sozinho corta em ~1s, o que pegava só metade da frase.
+const SILENCE_MS = 2200;
+const MAX_LISTEN_MS = 45000;
+
+export function useSpeech({ onFinalTranscript, onInterim, onListenEnd, onSpeakStart, onSpeakEnd, onError }) {
   const recRef = useRef(null);
   const tokenRef = useRef(0); // identifica a fala "viva"; callbacks de falas antigas são ignorados
   const [voice, setVoice] = useState(null);
@@ -22,18 +27,49 @@ export function useSpeech({ onFinalTranscript, onSpeakStart, onSpeakEnd, onError
     if (!SR) return onError?.("Reconhecimento de voz não suportado. Use Chrome ou Edge.");
     tokenRef.current++; // invalida qualquer fala/beat em andamento
     window.speechSynthesis.cancel();
+    try { recRef.current?.abort(); } catch { /* já parado */ }
+
     const rec = new SR();
     rec.lang = "pt-BR";
-    rec.interimResults = false;
+    rec.continuous = true; // não encerra na primeira pausa
+    rec.interimResults = true; // dá para ver/usar o que já foi entendido
     rec.maxAlternatives = 1;
-    rec.onresult = (e) => onFinalTranscript?.(e.results[0][0].transcript);
+
+    let finalText = "", interim = "", done = false, silence = null, maxTimer = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(silence);
+      clearTimeout(maxTimer);
+      const text = `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
+      if (text) onFinalTranscript?.(text);
+      onListenEnd?.(Boolean(text));
+    };
+    const armSilence = () => {
+      clearTimeout(silence);
+      silence = setTimeout(() => { try { rec.stop(); } catch { finish(); } }, SILENCE_MS);
+    };
+
+    rec.onresult = (e) => {
+      interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += `${r[0].transcript} `;
+        else interim += r[0].transcript;
+      }
+      onInterim?.(`${finalText} ${interim}`.replace(/\s+/g, " ").trim());
+      armSilence(); // cada palavra nova reinicia a contagem do silêncio
+    };
     rec.onerror = (e) => {
+      if (e.error === "no-speech" || e.error === "aborted") return; // silêncio ou cancelado: sem alarde
       console.error("[JARVIS] SpeechRecognition erro:", e.error);
       onError?.(`Erro no microfone: ${e.error}`);
     };
+    rec.onend = finish;
+    maxTimer = setTimeout(() => { try { rec.stop(); } catch { finish(); } }, MAX_LISTEN_MS);
     recRef.current = rec;
     rec.start();
-  }, [onFinalTranscript, onError]);
+  }, [onFinalTranscript, onInterim, onListenEnd, onError]);
 
   const stopListening = useCallback(() => recRef.current?.stop(), []);
 

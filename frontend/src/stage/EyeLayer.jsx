@@ -2,13 +2,40 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { arcPath, fitView, flyFrame, project, shiftCenter, unproject, TILE } from "./geo.js";
 import { useSize } from "./useSize.js";
 
-const TILE_URL = import.meta.env.VITE_TILE_URL || "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// Fontes de mapa, em ordem de preferência. Se uma falhar (bloqueio, limite, rede), passa para a próxima
+// sozinha. Para usar a sua (ex.: MapTiler/Mapbox com chave), defina VITE_TILE_URL no frontend/.env.
+const CUSTOM_URL = import.meta.env.VITE_TILE_URL;
+const PROVIDERS = [
+  ...(CUSTOM_URL ? [{ id: "custom", name: "personalizado", url: CUSTOM_URL, attrib: import.meta.env.VITE_TILE_ATTRIB || "" }] : []),
+  { id: "carto", name: "CARTO", url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", attrib: "© OpenStreetMap · © CARTO" },
+  { id: "esri", name: "Esri", url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", attrib: "Tiles © Esri" },
+  { id: "osm", name: "OpenStreetMap", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attrib: "© OpenStreetMap", light: true },
+];
+let stickyProvider = 0; // lembra a fonte que funcionou, para as próximas cenas não perderem tempo
 const LAYER_COLORS = ["#67e8f9", "#fbbf24", "#a78bfa", "#34d399", "#fb7185", "#f9a8d4"];
 const FLY_MS = 1700;
 
-function tileUrl(z, x, y) {
+function tileUrl(provider, z, x, y) {
   const retina = typeof window !== "undefined" && window.devicePixelRatio > 1.5 ? "@2x" : "";
-  return TILE_URL.replace("{s}", "abcd"[(x + y) % 4]).replace("{z}", z).replace("{x}", x).replace("{y}", y).replace("{r}", retina);
+  return provider.url.replace("{s}", "abcd"[(x + y) % 4]).replace("{z}", z).replace("{x}", x).replace("{y}", y).replace("{r}", retina);
+}
+
+/** Grade de latitude/longitude: o "mapa" de emergência quando nenhuma fonte de tiles responde. */
+function graticule(view, w, h) {
+  const c = project(view.lat, view.lon, view.zoom);
+  const pt = (lat, lon) => { const q = project(lat, lon, view.zoom); return `${(w / 2 + q.x - c.x).toFixed(1)},${(h / 2 + q.y - c.y).toFixed(1)}`; };
+  const lines = [];
+  for (let lon = -180; lon <= 180; lon += 30) {
+    let d = "";
+    for (let lat = -80; lat <= 80; lat += 10) d += `${d ? "L" : "M"}${pt(lat, lon)}`;
+    lines.push(d);
+  }
+  for (let lat = -60; lat <= 80; lat += 30) {
+    let d = "";
+    for (let lon = -180; lon <= 180; lon += 10) d += `${d ? "L" : "M"}${pt(lat, lon)}`;
+    lines.push(d);
+  }
+  return lines;
 }
 
 export default function EyeLayer({ geo, revealed, focus, active }) {
@@ -19,6 +46,24 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
   viewRef.current = view;
   const flyRef = useRef(null);
   const dragRef = useRef(null);
+
+  // Fonte de tiles ativa + detecção de falha (erro de rede/403/401 ou nada carregando).
+  const [pi, setPi] = useState(stickyProvider);
+  const stats = useRef({ ok: 0, bad: 0, sw: false });
+  const provider = PROVIDERS[pi] || null; // null = nenhuma fonte funcionou
+  const nextProvider = useCallback(() => {
+    if (stats.current.sw) return;
+    stats.current.sw = true;
+    setPi((i) => { const n = Math.min(i + 1, PROVIDERS.length); if (n < PROVIDERS.length) stickyProvider = n; return n; });
+  }, []);
+  useEffect(() => {
+    stats.current = { ok: 0, bad: 0, sw: false };
+    if (!provider || !w) return undefined;
+    const t = setTimeout(() => { if (!stats.current.ok) nextProvider(); }, 7000);
+    return () => clearTimeout(t);
+  }, [pi, provider, w > 0, nextProvider]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onTileLoad = (e) => { stats.current.ok++; e.currentTarget.classList.add("is-loaded"); };
+  const onTileError = () => { stats.current.bad++; if (!stats.current.ok && stats.current.bad >= 3) nextProvider(); };
 
   const points = useMemo(() => geo.points.filter((p) => revealed.has(p.id)), [geo, revealed]);
   const layers = useMemo(() => [...new Set(geo.points.map((p) => p.layer))], [geo]);
@@ -45,9 +90,10 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
   useEffect(() => {
     if (!active || !w) return;
     const target = focus.map((id) => byId[id]).find(Boolean);
-    // A faixa inferior (~170px) pertence à legenda: enquadra só a área livre acima dela.
-    if (target) flyTo(shiftCenter({ lat: target.lat, lon: target.lon, zoom: Math.max(4.5, Math.min(7, viewRef.current.zoom + 1.5)) }, 70));
-    else flyTo(shiftCenter(fitView(points, w, h - 170), 85));
+    // Pequena folga para o rodapé de controles (o resto da tela é do mapa).
+    const pad = Math.max(40, Math.min(120, Math.min(w, h) * 0.16));
+    if (target) flyTo(shiftCenter({ lat: target.lat, lon: target.lon, zoom: Math.max(4.5, Math.min(7, viewRef.current.zoom + 1.5)) }, Math.min(30, h * 0.05)));
+    else flyTo(shiftCenter(fitView(points, w, h - 40, pad), Math.min(24, h * 0.04)));
   }, [active, focusKey, revealedKey, w, h]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cancelAnimationFrame(flyRef.current?.raf), []);
@@ -84,14 +130,15 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
     const x0 = Math.floor((c.x - w / (2 * s)) / TILE), x1 = Math.floor((c.x + w / (2 * s)) / TILE);
     const y0 = Math.max(0, Math.floor((c.y - h / (2 * s)) / TILE)), y1 = Math.min(Math.pow(2, zi) - 1, Math.floor((c.y + h / (2 * s)) / TILE));
     const out = [];
+    if (!provider) return out;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         const wrapped = ((tx % Math.pow(2, zi)) + Math.pow(2, zi)) % Math.pow(2, zi);
-        out.push({ key: `${zi}/${tx}/${ty}`, url: tileUrl(zi, wrapped, ty), left: w / 2 + (tx * TILE - c.x) * s, top: h / 2 + (ty * TILE - c.y) * s, size });
+        out.push({ key: `${provider.id}/${zi}/${tx}/${ty}`, url: tileUrl(provider, zi, wrapped, ty), left: w / 2 + (tx * TILE - c.x) * s, top: h / 2 + (ty * TILE - c.y) * s, size });
       }
     }
     return out;
-  }, [view, w, h]);
+  }, [view, w, h, provider]);
 
   const toScreen = useCallback((p) => {
     const c = project(view.lat, view.lon, view.zoom), q = project(p.lat, p.lon, view.zoom);
@@ -107,11 +154,16 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
 
   return (
     <div className="eye" ref={ref} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onWheel={onWheel}>
-      <div className="eye-tiles">
+      {!provider && w > 0 && (
+        <svg className="eye-grat" width={w} height={h} aria-hidden="true">
+          {graticule(view, w, h).map((d, i) => <path key={i} d={d} />)}
+        </svg>
+      )}
+      <div className={`eye-tiles ${provider?.light ? "is-light" : ""}`}>
         {tiles.map((t) => (
-          <img key={t.key} src={t.url} alt="" draggable="false" className="eye-tile"
+          <img key={t.key} src={t.url} alt="" draggable="false" className="eye-tile" referrerPolicy="no-referrer"
             style={{ left: t.left, top: t.top, width: t.size + 0.5, height: t.size + 0.5 }}
-            onLoad={(e) => e.currentTarget.classList.add("is-loaded")} />
+            onLoad={onTileLoad} onError={onTileError} />
         ))}
       </div>
       <div className="eye-tint" />
@@ -147,6 +199,8 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
 
       <div className="eye-hud">
         <div className="eye-hud-title"><i /> OLHO DE DEUS</div>
+        {!provider && <div className="eye-warn">SEM MAPA BASE · exibindo grade. Defina VITE_TILE_URL (ex.: MapTiler)</div>}
+        {provider && pi > 0 && <div className="eye-warn is-soft">fonte alternativa: {provider.name}</div>}
         <div className="eye-hud-coords">{view.lat.toFixed(2)}°, {view.lon.toFixed(2)}° · Z{view.zoom.toFixed(1)}</div>
         {layers.length > 1 && (
           <div className="eye-layers">
@@ -158,7 +212,7 @@ export default function EyeLayer({ geo, revealed, focus, active }) {
           </div>
         )}
       </div>
-      <div className="eye-attrib">© OpenStreetMap · © CARTO</div>
+      <div className="eye-attrib">{provider?.attrib || ""}</div>
       <div className="eye-reticle" aria-hidden="true" />
     </div>
   );
