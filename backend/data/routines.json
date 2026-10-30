@@ -140,7 +140,7 @@
   {
     "id": "vendas",
     "nome": "Vendas",
-    "descricao": "Saber as minhas vendas online",
+    "descricao": "Resumo das vendas recentes",
     "gatilhos": [
       "Ja vendemos quanto?",
       "Hoje vendemos algo?",
@@ -150,24 +150,23 @@
     "ativa": true,
     "passos": [
       {
-        "id": "resumo",
+        "id": "analytics_resumo",
         "ferramenta": "analytics.resumo",
-        "params": {
-          "propriedade": "553937603",
-          "dias": "2"
-        }
+        "params": {}
       }
     ],
     "tela": {
       "cena": "briefing",
-      "titulo": null,
-      "blocos": []
+      "titulo": "Resumo de Vendas",
+      "blocos": [
+        "analytics_resumo"
+      ]
     },
     "fala": {
       "modo": "resumo",
       "instrucao": null
     },
     "criada_em": "2026-10-29T23:26:59",
-    "atualizada_em": "2026-10-29T23:26:59"
+    "atualizada_em": "2026-10-30T01:48:37"
   }
 ]
