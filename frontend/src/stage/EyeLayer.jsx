@@ -7,9 +7,11 @@ import { useSize } from "./useSize.js";
 const CUSTOM_URL = import.meta.env.VITE_TILE_URL;
 const PROVIDERS = [
   ...(CUSTOM_URL ? [{ id: "custom", name: "personalizado", url: CUSTOM_URL, attrib: import.meta.env.VITE_TILE_ATTRIB || "" }] : []),
-  { id: "carto", name: "CARTO", url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", attrib: "© OpenStreetMap · © CARTO" },
   { id: "esri", name: "Esri", url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", attrib: "Tiles © Esri" },
   { id: "osm", name: "OpenStreetMap", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attrib: "© OpenStreetMap", light: true },
+  // CARTO por último: passou a exigir chave e responde com uma IMAGEM de aviso ("API key required")
+  // em vez de erro HTTP, então o mapa acha que o tile carregou e não troca de fonte.
+  { id: "carto", name: "CARTO", url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", attrib: "© OpenStreetMap · © CARTO" },
 ];
 let stickyProvider = 0; // lembra a fonte que funcionou, para as próximas cenas não perderem tempo
 const LAYER_COLORS = ["#67e8f9", "#fbbf24", "#a78bfa", "#34d399", "#fb7185", "#f9a8d4"];

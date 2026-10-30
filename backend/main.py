@@ -15,8 +15,9 @@ from connections.tools import run_tools_phase
 
 load_dotenv(override=True)  # ANTES de importar routines.*
 
-from media import search_media  # noqa: E402
-from scene_schema import extract_json, fallback_scene, sanitize_scene  # noqa: E402
+from grounding import fetch_context  # noqa: E402
+from media import diagnose, search_media_all  # noqa: E402
+from scene_schema import extract_json, fallback_scene, sanitize_scene, visual_blocks  # noqa: E402
 
 from routines.api import router as routines_router
 
@@ -32,9 +33,14 @@ GROQ_MODEL = os.getenv(
 ).strip()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv(
-    "GEMINI_MODEL", "gemini-3.8-flash"
-).strip()
+# A API nativa quer só "gemini-2.5-flash". Aceita também "gemini/gemini-2.5-flash"
+# (estilo litellm) e "models/...", que antes geravam a URL quebrada e o 404.
+GEMINI_MODEL = (
+    os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    .strip()
+    .removeprefix("models/")
+    .removeprefix("gemini/")
+)
 
 GROQ_URL = (
     "https://api.groq.com/openai/v1/chat/completions"
@@ -160,7 +166,7 @@ async def call_groq(messages, req):
     return result
 
 
-async def call_gemini(messages, req):
+async def call_gemini(messages, req, json_mode=False, max_out=2048):
     # Converte o formato de mensagens para a API do Gemini.
     contents = []
 
@@ -189,17 +195,20 @@ async def call_gemini(messages, req):
         (message["content"] for message in messages if message["role"] == "system"),
         SYSTEM_PROMPT,
     )
+    gen = {
+        "temperature": req.temperature or 0.7,
+        "maxOutputTokens": max(256, min(req.max_tokens or 400, max_out)),
+    }
+    if json_mode:
+        gen["responseMimeType"] = "application/json"  # o diretor de cena precisa de JSON puro
+    if "2.5-flash" in GEMINI_MODEL:
+        gen["thinkingConfig"] = {"thinkingBudget": 0}  # sem gastar tokens "pensando"
     payload = {
         "systemInstruction": {
             "parts": [{"text": system_text}]
         },
         "contents": contents,
-        "generationConfig": {
-            "temperature": req.temperature or 0.7,
-            "maxOutputTokens": max(
-                256, min(req.max_tokens or 400, 2048)
-            ),
-        },
+        "generationConfig": gen,
     }
 
     headers = {
@@ -419,7 +428,7 @@ Retorne SOMENTE JSON válido, sem markdown, neste formato:
 Todos os blocos (media, diagram, chart, geo) são OPCIONAIS: inclua só o que o assunto realmente pede, e use null ou omita o resto.
 
 COMO ESCOLHER O QUE MOSTRAR
-- Objeto, lugar, animal, obra, fenômeno visível no mundo real: media com kind "image" (e, se o movimento ajuda, um segundo item kind "video"). A query deve achar fotos reais: "nuclear power plant cooling towers", não "como funciona usina".
+- Objeto, lugar, animal, obra, fenômeno visível no mundo real: media com kind "image" (e, se o movimento ajuda, um segundo item kind "video"). A query deve achar fotos reais: "nuclear power plant cooling towers", não "como funciona usina". Use termos GENÉRICOS e comuns em bancos de fotos, sem números nem nomes próprios raros ("nuclear power plant", não "Angra 2 reactor building"); para lugares famosos, o nome da cidade ou do país basta ("Rio de Janeiro skyline").
 - Processo, sistema com partes, causa e efeito, ciclo: diagram com 5 a 9 nós e arestas com flow true mostrando o que se move.
 - Comparação de quantidades, ranking, evolução numérica: chart (só com números que você conhece com segurança; senão não use chart).
 - Lugares, rotas, distribuição geográfica: geo com layout "eye" (visão panorâmica). Use layers diferentes (ex.: "portos", "rotas") quando fizer sentido.
@@ -437,11 +446,18 @@ COMO DIRIGIR (beats)
 - icon (opcional) escolha entre: atom bolt flame drop gear fan cloud sun wind cell dna brain heart globe building factory chip database network lock rocket planet book scale coin chart person leaf thermo magnet wave flask pipe shield clock eye pin.
 - Rótulos curtos (até 3 palavras). detail com no máximo 8 palavras, e só quando acrescenta algo que a imagem não mostra.
 
+MÍNIMO VISUAL (vale para qualquer pergunta que não seja conversa solta)
+- media com pelo menos 2 itens: uma imagem do assunto principal e outra de um detalhe ou ângulo diferente; acrescente um item kind "video" quando houver movimento ou processo visível. Troque a mídia mostrada ao longo dos beats (campo "media" de cada beat), em vez de repetir a mesma imagem.
+- Além da mídia, inclua pelo menos UM bloco estruturado: diagram, chart ou geo.
+- Se a pergunta cita lugares, países, cidades, usinas, rotas ou "onde", geo é OBRIGATÓRIO, com 3 a 10 pontos e pelo menos um beat com layout "eye". Use só coordenadas que você conhece com segurança; na dúvida, use a coordenada da cidade.
+- Todo bloco que você criar precisa de um beat que o mostre: diagram em "diagram" ou "split", chart em "chart", geo em "eye".
+- 4 a 7 beats, e a cada beat algo muda na tela (outra mídia, novos ids em "reveal", outro layout). Nunca fique com a mesma tela parada por dois beats seguidos.
+
 CONTINUIDADE
 - Se houver "CENA ANTERIOR" e a nova pergunta for um aprofundamento (ex.: "e como ocorre a fissão?"), monte uma cena NOVA focada no detalhe pedido, sem repetir o que já foi mostrado. Se o assunto mudou, ignore a cena anterior.
 
 SEGURANÇA
-- Não detalhe como fabricar armas, drogas ou causar danos. Em temas médicos, financeiros ou legais, seja cauteloso e mencione procurar um profissional quando fizer sentido. Não invente números nem fatos."""
+- Não detalhe como fabricar armas, drogas ou causar danos. Em temas médicos, financeiros ou legais, seja cauteloso e mencione procurar um profissional quando fizer sentido. Não invente números nem fatos. Em geografia (em que cidade, estado ou país fica algo), só afirme o que souber com certeza; na dúvida, omita o estado ou fale só do país. Prefira dizer menos a dizer errado."""
 
 
 class SceneRequest(BaseModel):
@@ -449,6 +465,18 @@ class SceneRequest(BaseModel):
     previous: Optional[Dict[str, Any]] = None
     temperature: Optional[float] = 0.5
     max_tokens: Optional[int] = 2500
+
+
+def _facts_block(facts: str) -> str:
+    """Fatos de referência (Wikipédia) para o diretor não inventar."""
+    if not facts:
+        return ""
+    return (
+        "\n\nFATOS DE REFERÊNCIA (Wikipédia). Para qualquer nome, localização (cidade, estado, país), "
+        "número ou coordenada, use SOMENTE o que está neste texto ou o que você sabe com certeza absoluta. "
+        "Nunca contradiga o texto. Se algo não estiver aqui e você tiver dúvida, não afirme (fale de forma geral). "
+        "Se o texto não tiver relação com a pergunta, ignore-o.\n" + facts
+    )
 
 
 def _previous_context(previous: Optional[Dict[str, Any]]) -> str:
@@ -459,25 +487,54 @@ def _previous_context(previous: Optional[Dict[str, Any]]) -> str:
     return f"\n\nCENA ANTERIOR: {title}. Elementos: {', '.join(labels)}."
 
 
-async def _direct_scene(messages, req):
-    """Tenta montar a cena com Groq e, se falhar, com Gemini."""
-    attempts = []
-    if GROQ_API_KEY:
-        attempts.append(("groq", lambda: call_groq(messages, req)))
-    if GEMINI_API_KEY:
-        # scene-engine uses max_out and json_mode on call_gemini; current may not have them
-        attempts.append(("gemini", lambda: call_gemini(messages, req)))
+def _last_user_text(messages) -> str:
+    return next((m.content for m in reversed(messages) if m.role == "user"), "")
 
-    errors = []
-    for name, run in attempts:
+
+def _is_thin(scene: dict, question: str) -> bool:
+    """Cena pobre para uma pergunta que merecia mais (conversa curta não conta)."""
+    if len(question.split()) < 4:
+        return False
+    return visual_blocks(scene) < 2 or len(scene["beats"]) < 3
+
+
+def _richness(scene: dict) -> int:
+    return visual_blocks(scene) * 10 + len(scene["beats"])
+
+
+def _scene_attempts(req):
+    """Provedores do diretor, na ordem de SCENE_ORDER (padrão "groq,gemini")."""
+    table = {}
+    if GROQ_API_KEY:
+        table["groq"] = lambda msgs: call_groq(msgs, req)
+    if GEMINI_API_KEY:
+        table["gemini"] = lambda msgs: call_gemini(msgs, req, json_mode=True, max_out=4096)
+    order = [p.strip() for p in os.getenv("SCENE_ORDER", "groq,gemini").lower().split(",")]
+    return [(name, table[name]) for name in order if name in table]
+
+
+async def _direct_scene(messages, req):
+    """Monta a cena com o primeiro provedor; se a cena vier pobre, tenta o próximo e fica com a mais rica."""
+    question = _last_user_text(req.messages)
+    best, best_name, errors = None, None, []
+    for name, run in _scene_attempts(req):
         try:
-            result = await run()
+            result = await run(messages)
             raw = result["choices"][0]["message"]["content"]
-            return sanitize_scene(extract_json(raw)), name, errors
+            scene = sanitize_scene(extract_json(raw))
         except Exception as exc:
             log.warning("Diretor (%s) falhou: %s", name, str(exc)[:300])
             errors.append(f"{name}: {str(exc)[:200]}")
-    return None, None, errors
+            continue
+        if best is None or _richness(scene) > _richness(best):
+            best, best_name = scene, name
+        if not _is_thin(scene, question):
+            break
+        log.info(
+            "Cena pobre via %s (%d recursos visuais, %d beats); tentando o próximo provedor.",
+            name, visual_blocks(scene), len(scene["beats"]),
+        )
+    return best, best_name, errors
 
 
 @app.post("/v1/scene")
@@ -490,7 +547,8 @@ async def scene(req: SceneRequest):
 
     chat_req = ChatRequest(messages=req.messages, temperature=req.temperature, max_tokens=req.max_tokens)
     started = time.time()
-    system = DIRECTOR_PROMPT + _previous_context(req.previous)
+    facts = await fetch_context(_last_user_text(req.messages))
+    system = DIRECTOR_PROMPT + _facts_block(facts) + _previous_context(req.previous)
     result, provider, errors = await _direct_scene(get_messages(chat_req, system), chat_req)
 
     if result is None:
@@ -509,8 +567,12 @@ async def scene(req: SceneRequest):
     result["provider"] = provider
     result["id"] = uuid.uuid4().hex[:10]
     log.info(
-        "Cena '%s' via %s em %.2fs (%d beats, %d mídias)",
-        result["title"], provider, time.time() - started, len(result["beats"]), len(result.get("media") or []),
+        "Cena '%s' via %s em %.2fs (%d beats, %d mídias, diagrama=%d nós, gráfico=%s, mapa=%d pontos)",
+        result["title"], provider, time.time() - started, len(result["beats"]),
+        len(result.get("media") or []),
+        len((result.get("diagram") or {}).get("nodes", [])),
+        "sim" if result.get("chart") else "não",
+        len((result.get("geo") or {}).get("points", [])),
     )
     return result
 
@@ -520,4 +582,17 @@ async def media_search(q: str, kind: str = "image"):
     """Busca uma imagem ou vídeo de referência. Devolve {item: null} se nada serve."""
     if kind not in {"image", "video"}:
         raise HTTPException(status_code=400, detail="kind deve ser image ou video.")
-    return {"item": await search_media(q, kind)}
+    results, tried = await search_media_all(q, kind)
+    # "alternatives": próximos candidatos, para o front usar se o primeiro não carregar.
+    # "tried" só vem quando não achou nada: mostra qual provedor falhou e por quê.
+    return {
+        "item": results[0] if results else None,
+        "alternatives": results[1:4],
+        "tried": [] if results else tried,
+    }
+
+
+@app.get("/v1/media/diagnose")
+async def media_diagnose(q: str = "nuclear power plant"):
+    """Testa cada provedor de mídia isoladamente. Abra no navegador para ver quem está falhando."""
+    return await diagnose(q)

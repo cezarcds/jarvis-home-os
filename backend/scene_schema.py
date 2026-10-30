@@ -325,6 +325,26 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
     return beats
 
 
+def _ensure_visible(beats: list[dict], ok_layouts: set[str], promote_to: str, promoted: set[int]) -> None:
+    """Se nenhum beat mostra o bloco, promove um beat (de preferência o do meio) ao layout que o mostra."""
+    if any(b["layout"] in ok_layouts for b in beats):
+        return
+    n = len(beats)
+    order = [i for i in range(n) if i not in promoted]
+    # evita o primeiro beat (abertura) e prefere beats que só tinham mídia/título
+    order.sort(key=lambda i: (i == 0 and n > 1, beats[i]["layout"] not in ("title", "media"), abs(i - n // 2)))
+    if not order:
+        return
+    idx = order[0]
+    promoted.add(idx)
+    beats[idx]["layout"] = promote_to
+
+
+def visual_blocks(scene: dict) -> int:
+    """Quantos tipos de recurso visual a cena usa (mídia, diagrama, gráfico, mapa)."""
+    return sum(bool(scene.get(k)) for k in ("media", "diagram", "chart", "geo"))
+
+
 def sanitize_scene(raw: dict) -> dict:
     """Valida o JSON do diretor. Levanta ValueError se não houver cena utilizável."""
     if not isinstance(raw, dict):
@@ -338,8 +358,21 @@ def sanitize_scene(raw: dict) -> dict:
     if not beats:
         raise ValueError("Cena sem beats utilizáveis")
 
-    # Se um beat não revela nada, garante que o diagrama apareça de forma
-    # progressiva: revela tudo no primeiro beat que usa o diagrama sem reveal.
+    # Cada bloco estruturado (diagrama, gráfico, mapa) precisa aparecer em ao
+    # menos um beat. O LLM costuma devolver o bloco mas esquecer o layout que o
+    # mostra; nesse caso o bloco ficava invisível. "split" mostra o diagrama; se
+    # não houver diagrama, o gráfico; se não houver nenhum dos dois, o mapa.
+    promoted: set[int] = set()
+    if diagram:
+        _ensure_visible(beats, {"diagram", "split"}, "diagram", promoted)
+    if chart:
+        _ensure_visible(beats, {"chart"} | ({"split"} if not diagram else set()), "chart", promoted)
+    geo_layouts = {"eye"} | ({"split"} if not diagram and not chart else set())
+    if geo:
+        _ensure_visible(beats, geo_layouts, "eye", promoted)
+
+    # Revelação progressiva: o que o LLM não citou em nenhum beat entra no
+    # primeiro beat cujo layout realmente mostra aquele bloco.
     if diagram:
         all_ids = [n["id"] for n in diagram["nodes"]]
         shown = {i for b in beats for i in b["reveal"]}
@@ -349,15 +382,13 @@ def sanitize_scene(raw: dict) -> dict:
                 if b["layout"] in ("diagram", "split"):
                     b["reveal"] = b["reveal"] + missing
                     break
-            else:
-                beats[-1]["reveal"] += missing
     if geo:
         all_pts = [p["id"] for p in geo["points"]]
         shown = {i for b in beats for i in b["reveal"]}
         missing = [i for i in all_pts if i not in shown]
         if missing:
             for b in beats:
-                if b["layout"] == "eye":
+                if b["layout"] in geo_layouts:
                     b["reveal"] = b["reveal"] + missing
                     break
 

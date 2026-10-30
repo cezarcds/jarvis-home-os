@@ -110,8 +110,14 @@ export async function askScene(messages, previous = null) {
   return scene;
 }
 
-export async function searchMedia(query, kind = "image") {
+// Resposta completa: { item, alternatives: [...], tried: [...] }.
+// "alternatives" são candidatos reserva; "tried" só vem quando nada foi achado (diagnóstico).
+export async function searchMediaAll(query, kind = "image") {
   const res = await fetch(`${API_URL}/v1/media/search?q=${encodeURIComponent(query)}&kind=${kind}`);
   if (!res.ok) throw new Error(`Mídia HTTP ${res.status}`);
-  return (await res.json()).item || null;
+  return res.json();
+}
+
+export async function searchMedia(query, kind = "image") {
+  return (await searchMediaAll(query, kind)).item || null;
 }

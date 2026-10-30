@@ -62,7 +62,8 @@ async def _groq(messages, system, max_tokens, temperature, timeout) -> str:
 
 
 async def _gemini(messages, system, max_tokens, temperature, timeout) -> str:
-    model = _env("GEMINI_MODEL", "gemini-2.5-flash")
+    # Aceita "gemini/gemini-2.5-flash" (estilo litellm) e "models/..." sem quebrar a URL.
+    model = _env("GEMINI_MODEL", "gemini-2.5-flash").removeprefix("models/").removeprefix("gemini/")
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
         for m in messages

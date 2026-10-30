@@ -50,7 +50,13 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
   }, [scene, player]);
 
   const mediaId = beat?.media || scene?.media?.[0]?.id;
-  const entry = mediaId ? entries[mediaId] : null;
+  let entry = mediaId ? entries[mediaId] : null;
+  // Se a mídia escolhida para este beat não existe (busca falhou), usa outra que já esteja pronta
+  // em vez de deixar o palco vazio. Enquanto ainda carrega, não troca (evita piscar).
+  if (entry?.status === "none") {
+    const alt = (scene?.media || []).map((m) => entries[m.id]).find((e) => e?.status === "ready");
+    if (alt) entry = alt;
+  }
   const hasMedia = entry?.status === "ready";
   const ctx = { hasMedia, hasDiagram: !!scene?.diagram, hasChart: !!scene?.chart, hasGeo: !!scene?.geo };
   const layout = scene && beat ? effectiveLayout(beat, ctx) : "title";

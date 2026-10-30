@@ -1,4 +1,21 @@
-import React from "react";
+import React, { useState } from "react";
+
+// Imagem com plano B: se a URL principal falhar na tela, troca por fallback_url (quando o backend mandou).
+function SafeImg({ item, alt }) {
+  const [src, setSrc] = useState(item.url);
+  return (
+    <img
+      className="ml-img"
+      src={src}
+      alt={alt}
+      draggable="false"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (item.fallback_url && src !== item.fallback_url) setSrc(item.fallback_url);
+      }}
+    />
+  );
+}
 
 export default function MediaLayer({ entry, caption, mode, visible }) {
   if (!entry || entry.status === "none") return null;
@@ -18,7 +35,7 @@ export default function MediaLayer({ entry, caption, mode, visible }) {
   return (
     <div className={`ml ml-${mode}`}>
       <div className="ml-frame">
-        {item.kind === "image" && <img key={item.url} className="ml-img" src={item.url} alt={text || ""} draggable="false" />}
+        {item.kind === "image" && <SafeImg key={item.url} item={item} alt={text || ""} />}
         {item.kind === "video" && item.embed && visible && (
           <iframe
             key={item.embed}

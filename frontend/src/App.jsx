@@ -192,10 +192,16 @@ export default function App() {
       // Perguntas que pedem explicação visual → motor de cenas
       // Rotinas / comandos de casa → assistente atual
       // Heurística simples: se parece pergunta de conhecimento, usa cena
+      // "Jarvis, como funciona..." -> tira o chamado do começo antes de testar os gatilhos.
+      const q = n.replace(/^((ei|oi|ola|ok|e ai) )?jarvis /, "");
       const looksLikeExplain =
-        /^(o que|oque|como|por que|porque|explique|me explica|me fale|fale sobre|quem|quando|onde|qual|quais|mostra|mostre)/.test(
-          n
-        ) || n.includes("?");
+        /^(o que|oque|como|por que|porque|explique|explica|me explica|me explique|me fale|fale sobre|quem|quando|onde|qual|quais|quanto|quantos|mostra|mostre|me mostra|me mostre|desenhe|desenha|ilustre|compare|liste|conte|me conte|pesquise|busque|visualize)/.test(
+          q
+        ) ||
+        // pedidos explicitamente visuais, em qualquer posição da frase
+        /\b(mapa|imagem|imagens|foto|fotos|video|videos|diagrama|grafico|desenho)\b/.test(q) ||
+        // normalize() apaga o "?", então a checagem é no texto original
+        text.includes("?");
       if (looksLikeExplain) sendVisual(text);
       else send(text);
     },

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
-import { searchMedia } from "../lib/api.js";
+import { searchMediaAll } from "../lib/api.js";
+import { resolveMedia } from "./mediaPick.js";
 
-const PRELOAD_TIMEOUT = 9000;
+const PRELOAD_TIMEOUT = 6000; // por tentativa; o backend dá até 4 candidatos
 const FIRST_MEDIA_WAIT = 3200; // quanto esperar a 1ª imagem antes de começar a narrar
 
 function preloadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // Sem referrer: alguns sites de fotos bloqueiam hotlink quando veem a origem localhost.
+    img.referrerPolicy = "no-referrer";
     const t = setTimeout(() => reject(new Error("timeout")), PRELOAD_TIMEOUT);
     img.onload = () => { clearTimeout(t); resolve(img); };
     img.onerror = () => { clearTimeout(t); reject(new Error("erro")); };
@@ -41,10 +44,10 @@ export function useMediaResolver(scene) {
     scene.media.forEach(async (m) => {
       let result = { status: "none", item: null };
       try {
-        const item = await searchMedia(m.query, m.kind);
-        if (item) {
-          if (item.kind === "image") await preloadImage(item.url);
-          result = { status: "ready", item: { ...item, caption: m.caption } };
+        result = await resolveMedia(m, { searchAll: searchMediaAll, preload: preloadImage });
+        if (result.status === "none") {
+          // "tried" vem do backend e diz qual provedor falhou (ex.: commons[...]: HTTP 403).
+          console.warn("[JARVIS] Sem mídia para:", m.query, result.tried || []);
         }
       } catch (err) {
         console.warn("[JARVIS] Mídia indisponível:", m.query, err.message);
