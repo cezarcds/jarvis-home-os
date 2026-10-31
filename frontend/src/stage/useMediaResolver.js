@@ -50,6 +50,21 @@ export function useMediaResolver(scene) {
           if (image) {
             try { await preloadImage(image); } catch { image = null; }
           }
+          // Sem capa válida? Busca uma imagem complementar no mesmo serviço de mídia do palco.
+          if (!image) {
+            try {
+              const found = await searchMediaAll(m.query || m.news.title, "image");
+              const candidates = [found?.item, ...(found?.alternatives || [])].filter(Boolean);
+              for (const candidate of candidates) {
+                const url = candidate.url || candidate.fallback_url;
+                if (!url) continue;
+                try { await preloadImage(url); image = url; break; }
+                catch { /* tenta o próximo candidato */ }
+              }
+            } catch (err) {
+              console.warn("[JARVIS] Imagem complementar indisponível:", err.message);
+            }
+          }
           if (!cancelled) {
             setState((s) => (s.sceneId === sceneId
               ? { ...s, entries: { ...s.entries, [m.id]: { status: "ready", item: { kind: "news", ...m.news, image } } } }

@@ -140,7 +140,9 @@ def _callout(it: dict, mid: str, side: str, at: float) -> Optional[dict]:
 
 def build_scene(text: str, ctx: NewsContext, provider: str = "gemini-search") -> dict:
     """Cena no formato do /v1/scene. Levanta ValueError se não houver o que falar."""
-    items = pick_items(ctx.items)
+    # Reserva espaço para quatro cartões de reportagem e dois vídeos relacionados.
+    # O limite MAX_MEDIA do scene_schema é seis itens por cena.
+    items = pick_items(ctx.items)[:4]
     media = [
         {
             "id": f"n{i + 1}", "kind": "news", "query": it["title"][:80], "caption": "",
@@ -149,23 +151,34 @@ def build_scene(text: str, ctx: NewsContext, provider: str = "gemini-search") ->
         for i, it in enumerate(items)
     ]
     by_id = {m["id"]: it for m, it in zip(media, items)}
+    for i, it in enumerate(items[:2]):
+        media.append({
+            "id": f"v{i + 1}", "kind": "video", "query": it["title"][:80],
+            "caption": "Vídeo relacionado",
+        })
 
     beats = []
     for i, say in enumerate(split_beats(text)):
         if not media:
             beats.append({"say": say, "layout": "title", "caption": "", "keyword": ""})
             continue
-        n = min(SHOW, len(media))
-        start = (i * 2) % len(media)
-        window = [media[(start + k) % len(media)]["id"] for k in range(n)]
-        cited = [m["id"] for m in media if outlet_mentioned(by_id[m["id"]].get("outlet") or "", say)]
+        n = min(SHOW, len(items))
+        start = (i * 2) % len(items)
+        window = [f"n{(start + k) % len(items) + 1}" for k in range(n)]
+        cited = [f"n{j + 1}" for j, it in enumerate(items) if outlet_mentioned(it.get("outlet") or "", say)]
         featured = cited[0] if cited else window[0]
-        show = [featured] + [w for w in window if w != featured][: n - 1]
+        # Mantém matérias como fonte principal e intercala vídeos reais encontrados pelo Media Engine.
+        video_id = f"v{(i % min(2, len(items))) + 1}"
+        show = [featured] + [w for w in window if w != featured][:1]
+        if video_id in {m["id"] for m in media}:
+            show.append(video_id)
+
         callouts = []
         for k, mid in enumerate(([featured] + [c for c in cited if c != featured])[:2]):
-            c = _callout(by_id[mid], mid, "left" if k == 0 else "right", 0.15 if k == 0 else 0.55)
-            if c:
-                callouts.append(c)
+            if mid.startswith("n") and mid in by_id:
+                c = _callout(by_id[mid], mid, "left" if k == 0 else "right", 0.15 if k == 0 else 0.55)
+                if c:
+                    callouts.append(c)
         beats.append({
             "say": say, "layout": "media", "media": featured, "show": show,
             "caption": "", "reveal": [], "focus": [], "callouts": callouts,

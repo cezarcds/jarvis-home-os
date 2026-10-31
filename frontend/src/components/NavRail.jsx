@@ -3,6 +3,7 @@ import React from "react";
 const ICONS = {
   home: <path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z" />,
   list: <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />,
+  newspaper: <><path d="M4 4h14v16H4z" /><path d="M18 8h2v10a2 2 0 01-2 2M7 8h8M7 12h8M7 16h5" /></>,
   sliders: (
     <>
       <path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M21 18h-1" />
@@ -38,11 +39,12 @@ function Item({ icon, label, active, onClick, title, dot }) {
 const MIC_DOT = { listening: "on", awake: "hot", connecting: "wait", loading: "wait", unavailable: "bad", error: "bad" };
 
 /** Menu lateral. Só tem o que funciona: início, rotinas, configurações e a voz livre. */
-export default function NavRail({ phase, onHome, onRoutines, onSettings, mic }) {
+export default function NavRail({ phase, onHome, onRoutines, onSettings, onNews, mic }) {
   return (
     <nav className="rail" aria-label="Navegação">
       <Item icon="home" label="Início" active={phase === "home"} onClick={onHome} title="Voltar ao início (Esc)" />
       <Item icon="list" label="Rotinas" onClick={onRoutines} title="Painel de rotinas (Alt+R)" />
+      <Item icon="newspaper" label="Notícias" onClick={onNews} title="Pesquisar notícias e abrir apresentação visual" />
       <Item icon="sliders" label="Config" onClick={onSettings} title="Conexões e configurações" />
       {mic.supported && (
         <>

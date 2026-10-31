@@ -3,7 +3,6 @@ import CoreRings from "./components/CoreRings.jsx";
 import CoreOrb from "./core/CoreOrb.jsx";
 import { useVoiceLevel } from "./core/useVoiceLevel.js";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
-import HeadlinesCard from "./components/news/HeadlinesCard.jsx";
 import NavRail from "./components/NavRail.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { handsFreeSupported, useHandsFree } from "./hooks/useHandsFree.js";
@@ -492,6 +491,7 @@ export default function App() {
             onHome={goHome}
             onRoutines={() => goTo("ADMIN")}
             onSettings={() => goTo("ADMIN")}
+            onNews={() => sendVisual("Pesquise notícias recentes sobre os principais acontecimentos do Brasil e do mundo, explique o contexto e mostre imagens e vídeos relacionados.")}
             mic={{
               supported: handsFreeSupported,
               on: handsFreeOn,
@@ -506,7 +506,6 @@ export default function App() {
               <div className="hud-away hud-away-left" style={{ "--i": 0 }}>
                 <div className="flex flex-col gap-4">
                   <LeftPanels />
-                  <HeadlinesCard />
                 </div>
               </div>
 
