@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from typing import Any
 
 LAYOUTS = {"title", "media", "diagram", "split", "chart", "eye"}
@@ -30,7 +31,13 @@ MEDIA_KINDS = {"image", "video"}
 MAX_BEATS = 8
 MAX_NODES = 12
 MAX_EDGES = 18
-MAX_MEDIA = 3
+MAX_MEDIA = 6
+MAX_SHOW = 4          # mídias visíveis ao mesmo tempo (o "mural")
+MAX_CALLOUTS = 3      # chamadas de texto por beat
+CALLOUT_MAX_WORDS = 6
+CALLOUT_SIDES = {"left", "right"}
+CALLOUT_KINDS = {"fact", "term", "number"}
+CALLOUT_GAP = 0.14    # distância mínima entre chamadas do mesmo beat (fração da fala)
 MAX_POINTS = 14
 MAX_SERIES = 10
 
@@ -277,10 +284,81 @@ def _clean_media(raw: Any) -> list[dict]:
     return out
 
 
+def _norm_text(value: str) -> str:
+    plain = "".join(c for c in unicodedata.normalize("NFKD", value) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "", plain.lower())
+
+
+def _arrange_callouts(items: list[dict]) -> list[dict]:
+    """Completa e organiza as chamadas: pontos de entrada em ordem e espaçados, lados alternados."""
+    n = len(items)
+    if not n:
+        return items
+    for k, c in enumerate(items):
+        if c["at"] is None:
+            c["at"] = 0.08 + 0.7 * k / max(1, n)
+    items.sort(key=lambda c: c["at"])
+    for i in range(1, n):
+        items[i]["at"] = max(items[i]["at"], items[i - 1]["at"] + CALLOUT_GAP)
+    if items[-1]["at"] > 0.92:  # não coube: reparte de novo em vez de empilhar no fim
+        for k, c in enumerate(items):
+            c["at"] = 0.06 + 0.8 * k / max(1, n)
+    prev = None
+    for c in items:
+        if c["side"] is None:
+            c["side"] = "right" if prev == "left" else "left"
+        prev = c["side"]
+        c["at"] = round(c["at"], 2)
+    return items
+
+
+def _clean_callouts(raw: Any, say: str, targets: set) -> list[dict]:
+    """Chamadas de texto que entram pelos lados enquanto o beat é falado."""
+    out: list[dict] = []
+    say_key = _norm_text(say)
+    for rc in (raw if isinstance(raw, list) else [])[: MAX_CALLOUTS + 2]:
+        if isinstance(rc, str):
+            rc = {"text": rc}
+        if not isinstance(rc, dict):
+            continue
+        text = " ".join(_s(rc.get("text"), 70).split()[:CALLOUT_MAX_WORDS]).strip(" .,;:!?-")
+        if len(text) < 2:
+            continue
+        key = _norm_text(text)
+        if not key or key == say_key or any(key == _norm_text(o["text"]) for o in out):
+            continue
+        side = _s(rc.get("side"), 6).lower()
+        kind = _s(rc.get("kind"), 6).lower()
+        target = _slug(rc.get("target"), "")
+        out.append({
+            "text": text,
+            "side": side if side in CALLOUT_SIDES else None,
+            "kind": kind if kind in CALLOUT_KINDS else "fact",
+            "at": _num(rc.get("at"), 0.0, 0.92, None),
+            "target": target if target in targets else None,
+        })
+        if len(out) == MAX_CALLOUTS:
+            break
+    return _arrange_callouts(out)
+
+
+def _auto_callouts(reveal: list[str], labels: dict) -> list[dict]:
+    """Plano B quando o diretor esquece as chamadas: o rótulo do que entra em cena naquele beat."""
+    items = []
+    for rid in reveal[:2]:
+        label = " ".join(_s(labels.get(rid), 40).split()[:CALLOUT_MAX_WORDS])
+        if label:
+            items.append({"text": label, "side": None, "kind": "term", "at": None, "target": rid})
+    return _arrange_callouts(items)
+
+
 def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
     node_ids = {n["id"] for n in diagram["nodes"]} if diagram else set()
     point_ids = {p["id"] for p in geo["points"]} if geo else set()
     media_ids = {m["id"] for m in media}
+    labels = {n["id"]: n["label"] for n in (diagram["nodes"] if diagram else [])}
+    labels.update({p["id"]: p["label"] for p in (geo["points"] if geo else [])})
+    targets = media_ids | node_ids | point_ids
 
     beats = []
     for rb in (raw if isinstance(raw, list) else [])[:MAX_BEATS]:
@@ -314,13 +392,21 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
             return res
 
         mid = _slug(rb.get("media"), "")
+        featured = mid if mid in media_ids else (media[0]["id"] if media and layout in ("media", "split", "title") else None)
+        show = pick("show", media_ids)[:MAX_SHOW]
+        if show and featured and featured not in show:
+            show = [featured] + show[: MAX_SHOW - 1]
+        reveal = pick("reveal", node_ids | point_ids)
+        callouts = _clean_callouts(rb.get("callouts"), say, targets) or _auto_callouts(reveal, labels)
         beats.append({
             "say": say,
             "layout": layout,
             "caption": _s(rb.get("caption"), 40),
-            "media": mid if mid in media_ids else (media[0]["id"] if media and layout in ("media", "split", "title") else None),
-            "reveal": pick("reveal", node_ids | point_ids),
+            "media": featured,
+            "show": show,
+            "reveal": reveal,
             "focus": pick("focus", node_ids | point_ids),
+            "callouts": callouts,
         })
     return beats
 
@@ -416,7 +502,7 @@ def fallback_scene(answer: str, title: str = "Explicação") -> dict:
     if cur:
         chunks.append(cur)
     beats = [
-        {"say": c, "layout": "title", "caption": "", "media": None, "reveal": [], "focus": []}
+        {"say": c, "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": []}
         for c in chunks[:MAX_BEATS]
-    ] or [{"say": answer.strip()[:420] or "Sem resposta.", "layout": "title", "caption": "", "media": None, "reveal": [], "focus": []}]
+    ] or [{"say": answer.strip()[:420] or "Sem resposta.", "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": []}]
     return {"title": title, "kind": "concept", "media": [], "diagram": None, "chart": None, "geo": None, "beats": beats}

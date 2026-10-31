@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "./stage.css";
 import DiagramLayer from "./DiagramLayer.jsx";
-import MediaLayer from "./MediaLayer.jsx";
+import MediaWall from "./MediaWall.jsx";
+import Callouts from "./Callouts.jsx";
 import ChartLayer from "./ChartLayer.jsx";
 import EyeLayer from "./EyeLayer.jsx";
 import { effectiveLayout, rectsFor, rectStyle } from "./layouts.js";
+import { placeWall, wallIds } from "./wall.js";
 
 function Subtitle({ beat, progress, finished }) {
   if (!beat) return <p className="st-say">&nbsp;</p>;
@@ -31,7 +33,11 @@ function useCaptions() {
   return [on, toggle];
 }
 
-export default function SceneStage({ scene, media, player, loading, dim, question, status, notice, onClose }) {
+/**
+ * A cena na mesma tela: este componente é uma camada transparente por cima do HUD. O núcleo e os
+ * painéis saem de cena (App/CSS), e aqui entram o mural de mídia, os desenhos e as chamadas de texto.
+ */
+export default function SceneStage({ scene, media, player, loading, dim, status, notice, onClose }) {
   const [cc, toggleCc] = useCaptions();
   const entries = media.entries;
   const beat = player.beat;
@@ -49,25 +55,35 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
     return () => window.removeEventListener("keydown", onKey);
   }, [scene, player]);
 
-  const mediaId = beat?.media || scene?.media?.[0]?.id;
-  let entry = mediaId ? entries[mediaId] : null;
-  // Se a mídia escolhida para este beat não existe (busca falhou), usa outra que já esteja pronta
-  // em vez de deixar o palco vazio. Enquanto ainda carrega, não troca (evita piscar).
-  if (entry?.status === "none") {
-    const alt = (scene?.media || []).map((m) => entries[m.id]).find((e) => e?.status === "ready");
-    if (alt) entry = alt;
-  }
-  const hasMedia = entry?.status === "ready";
+  const ids = scene ? wallIds(scene, beat, entries) : [];
+  const hasMedia = ids.some((id) => entries[id]?.status === "ready");
   const ctx = { hasMedia, hasDiagram: !!scene?.diagram, hasChart: !!scene?.chart, hasGeo: !!scene?.geo };
   const layout = scene && beat ? effectiveLayout(beat, ctx) : "title";
   const rects = rectsFor(layout, ctx);
-  const mediaRect = rects.media;
-  const mediaMode = mediaRect.bg ? "bg" : mediaRect.pip ? "pip" : "pane";
+
+  const featured = beat?.media && ids.includes(beat.media) ? beat.media : ids[0];
+  const cards = useMemo(
+    () => (rects.media.o > 0 ? placeWall(ids, featured, rects.media) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ids.join("|"), featured, layout, hasMedia],
+  );
+
+  // Onde cada nó do diagrama está no palco, para as linhas das chamadas apontarem para ele.
+  const nodes = useMemo(() => {
+    const out = {};
+    const r = rects.diagram;
+    (scene?.diagram?.nodes || []).forEach((n) => {
+      out[n.id] = { x: r.x + (n.x * r.w) / 100, y: r.y + (n.y * r.h) / 100 };
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene?.id, layout]);
+
+  const calloutCtx = { cards, nodes };
+  const wallOpacity = rects.media.o;
 
   return (
     <section className={`st ${dim ? "is-dim" : ""} st-layout-${layout}`} aria-live="polite">
-      <div className="st-bg" aria-hidden="true"><div className="st-grid" /><div className="st-horizon" /></div>
-
       {scene && (
         <div className="st-meta">
           <i className={player.playing ? "is-live" : ""} />
@@ -78,21 +94,19 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
 
       {scene && (
         <div className="st-panes">
-          {/* mídia */}
-          {scene.media.length > 0 && (
-            <div className={`st-pane st-media ${mediaRect.bg ? "is-bg" : ""} ${mediaRect.pip ? "is-pip" : ""}`} style={rectStyle(mediaRect)}>
-              <MediaLayer entry={entry} caption={beat?.caption} mode={mediaMode} visible={mediaRect.o > 0.5} />
-            </div>
-          )}
+          {/* mural de mídia: vários cartões ao mesmo tempo */}
+          <div className="st-wall" style={{ opacity: wallOpacity, pointerEvents: wallOpacity > 0.5 ? "auto" : "none" }}>
+            <MediaWall cards={cards} entries={entries} scene={scene} beat={beat} visible={wallOpacity > 0.5} />
+          </div>
           {/* diagrama */}
           {scene.diagram && (
-            <div className="st-pane" style={rectStyle(rects.diagram)}>
+            <div className="st-pane st-glass" style={rectStyle(rects.diagram)}>
               <DiagramLayer diagram={scene.diagram} revealed={player.revealed} focus={player.focus} active={rects.diagram.o > 0.5} />
             </div>
           )}
           {/* gráfico */}
           {scene.chart && (
-            <div className="st-pane" style={rectStyle(rects.chart)}>
+            <div className="st-pane st-glass" style={rectStyle(rects.chart)}>
               {rects.chart.o > 0.5 && <ChartLayer chart={scene.chart} />}
             </div>
           )}
@@ -107,6 +121,16 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
             <span>JARVIS · {scene.kind?.toUpperCase() || "EXPLICAÇÃO"}</span>
             <h1>{scene.title}</h1>
           </div>
+          {/* chamadas de texto, no ritmo da fala */}
+          {beat && (
+            <Callouts
+              beatKey={`${scene.id}:${player.index}`}
+              callouts={beat.callouts || []}
+              progress={player.progress}
+              finished={player.finished && !player.playing}
+              ctx={calloutCtx}
+            />
+          )}
         </div>
       )}
 
@@ -121,6 +145,7 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
 
       {scene && (
         <footer className="st-bar">
+          {cc && <Subtitle beat={beat} progress={player.progress} finished={player.finished && !player.playing} />}
           <div className="st-bar-top">
             <span className="st-wave" data-on={status === "SPEAKING" && player.playing}><i /><i /><i /><i /><i /></span>
             <div className="st-dots">
@@ -137,7 +162,6 @@ export default function SceneStage({ scene, media, player, loading, dim, questio
               {onClose && <button type="button" onClick={onClose} title="Fechar (Esc)">×</button>}
             </div>
           </div>
-          {cc && <Subtitle beat={beat} progress={player.progress} finished={player.finished && !player.playing} />}
         </footer>
       )}
     </section>

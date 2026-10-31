@@ -3,6 +3,7 @@ import CoreRings from "./components/CoreRings.jsx";
 import CoreOrb from "./core/CoreOrb.jsx";
 import { useVoiceLevel } from "./core/useVoiceLevel.js";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
+import NavRail from "./components/NavRail.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { handsFreeSupported, useHandsFree } from "./hooks/useHandsFree.js";
 import { isLocalCommand } from "./lib/localIntents.js";
@@ -40,6 +41,22 @@ const VISUAL_CLOSE_RE =
 const FILLER_RE =
   /^(jarvis )?(ok|okay|certo|entendi|beleza|legal|uhum|aham|sim|nao|obrigado|obrigada|valeu|hum|hmm)( jarvis)?$/;
 
+const MONTHS = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
+
+function Clock() {
+  const [t, setT] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setT(new Date()), 15000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="tracking-[0.2em] text-cyan-100/80">
+      {t.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+      <span className="ml-3 opacity-60">{`${String(t.getDate()).padStart(2, "0")} ${MONTHS[t.getMonth()]} ${t.getFullYear()}`}</span>
+    </span>
+  );
+}
+
 const newSessionId = () =>
   crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
 
@@ -65,6 +82,7 @@ export default function App() {
   ]);
   const [briefing, setBriefing] = useState(null);
   const [typed, setTyped] = useState("");
+  const [recentMedia, setRecentMedia] = useState([]); // miniaturas das cenas anteriores
 
   // Voz sem clique ("Jarvis, ...") e visão de tela
   const [handsFreeOn, setHandsFreeOn] = useState(
@@ -310,6 +328,26 @@ export default function App() {
   }, [hf.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const media = useMediaResolver(visualScene);
+
+  // Guarda as imagens e vídeos que apareceram nas cenas, para o painel MÍDIA RECENTE.
+  useEffect(() => {
+    if (!visualScene) return;
+    const ready = visualScene.media.map((m) => media.entries[m.id]).filter((e) => e?.status === "ready" && e.item);
+    if (!ready.length) return;
+    setRecentMedia((prev) => {
+      const seen = new Set(prev.map((p) => p.key));
+      const add = ready
+        .map((e) => ({
+          key: e.item.url || e.item.src || e.item.embed,
+          thumb: e.item.kind === "image" ? e.item.url : e.item.poster || "",
+          kind: e.item.kind,
+          title: e.item.title || "",
+          page: e.item.page || e.item.link || null,
+        }))
+        .filter((x) => x.key && x.thumb && !seen.has(x.key));
+      return add.length ? [...add, ...prev].slice(0, 8) : prev;
+    });
+  }, [visualScene, media.entries]);
   const player = useScenePlayer({
     scene: visualScene,
     ready: media.ready,
@@ -364,6 +402,16 @@ export default function App() {
     speech.startListening();
   };
 
+  const toggleHandsFree = () =>
+    setHandsFreeOn((v) => {
+      localStorage.setItem("jarvis.handsfree", v ? "0" : "1");
+      return !v;
+    });
+  const goHome = () => {
+    if (visualMode) closeVisualMode();
+    else if (scene !== "ACTIVE") goTo("ACTIVE");
+  };
+
   const submitTyped = (e) => {
     e.preventDefault();
     if (!typed.trim() || status === "PROCESSING") return;
@@ -402,101 +450,105 @@ export default function App() {
     },
   };
 
+  const phase = visualMode ? "scene" : "home";
+  const listening = status === "LISTENING";
+
   return (
     <SceneManager scene={scene} overlayProps={overlayProps}>
-      <div
-        className={`blueprint h-full w-full flex flex-col text-hud-cyan ${
-          visualMode ? "visual-mode" : ""
-        }`}
-      >
-        <header className="px-6 py-3 flex justify-between items-center text-xs tracking-[0.4em] border-b border-hud-cyan/20">
-          <span>JARVIS // HOME OS</span>
+      <div className="hud hud-ambient h-full w-full flex flex-col text-hud-cyan" data-phase={phase}>
+        <header className="hud-header">
+          <div className="flex items-center gap-4">
+            <span className="hud-logo" aria-hidden="true" />
+            <span>JARVIS <span className="opacity-50">//</span> <span className="opacity-70">HOME OS</span></span>
+          </div>
           <div className="flex items-center gap-6">
-            <button
-              onClick={() => goTo("ADMIN")}
-              className="tracking-[0.3em] opacity-70 hover:opacity-100"
-              title="Alt+R"
-            >
-              ROTINAS
-            </button>
             {vision.active && (
-              <span className="text-hud-amber tracking-[0.25em]" title="O Jarvis está analisando a sua tela. Diga: para de olhar a tela.">
+              <span className="hud-chip text-hud-amber" title="O Jarvis está analisando a sua tela. Diga: para de olhar a tela.">
                 ◉ TELA
               </span>
             )}
-            {handsFreeSupported && (
-              <button
-                onClick={() =>
-                  setHandsFreeOn((v) => {
-                    localStorage.setItem("jarvis.handsfree", v ? "0" : "1");
-                    return !v;
-                  })
-                }
-                className="tracking-[0.2em] opacity-70 hover:opacity-100"
-                title='Voz livre: diga "Jarvis" seguido do comando'
-              >
-                MIC LIVRE {handsFreeOn ? (hf.state === "awake" ? "· OUVINDO" : hf.state === "listening" ? "· ON" : "· …") : "· OFF"}
-              </button>
-            )}
-            {visualMode && (
-              <button
-                onClick={closeVisualMode}
-                className="tracking-[0.2em] opacity-70 hover:opacity-100"
-                title="Fechar modo visual (Esc)"
-              >
-                ESC ×
-              </button>
-            )}
-            <span className={status === "LISTENING" ? "text-hud-amber" : ""}>
-              ● {status}
+            <span className={`hud-chip ${listening ? "is-listening text-hud-amber" : ""}`}>
+              <i /> {status}
             </span>
+            <Clock />
           </div>
         </header>
 
-        <main className="flex-1 flex items-center justify-between px-8 gap-6 min-h-0">
-          {!visualMode && <LeftPanels />}
+        <main className="hud-main flex-1 min-h-0 flex">
+          <NavRail
+            phase={phase}
+            onHome={goHome}
+            onRoutines={() => goTo("ADMIN")}
+            onSettings={() => goTo("ADMIN")}
+            mic={{
+              supported: handsFreeSupported,
+              on: handsFreeOn,
+              state: hf.state,
+              toggle: toggleHandsFree,
+              hint: 'Voz livre: diga "Jarvis" seguido do comando',
+            }}
+          />
 
-          <div className="flex flex-col items-center gap-6 flex-1 min-w-0">
-            {!visualMode && <CoreOrb status={status} onClick={onCoreClick} levelRef={voiceLevel} />}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col px-6 pb-4 gap-4">
+            <div className="flex-1 min-h-0 flex items-center justify-between gap-6">
+              <div className="hud-away hud-away-left" style={{ "--i": 0 }}>
+                <LeftPanels />
+              </div>
 
-            {visualMode ? (
-              <SceneStage
-                scene={visualScene}
-                media={media}
-                player={player}
-                loading={sceneLoading}
-                dim={dim}
-                question={userText}
-                status={status}
-                notice={reply}
-              />
-            ) : (
-              <>
-                <div className="panel p-4 w-full max-w-2xl text-sm space-y-2">
-                  {userText && (
-                    <div className="text-hud-cyan/60">&gt; {userText}</div>
-                  )}
-                  <div className="text-cyan-100 leading-relaxed">{reply}</div>
-                </div>
-                <form onSubmit={submitTyped} className="w-full max-w-2xl">
-                  <input
-                    value={typed}
-                    onChange={(e) => setTyped(e.target.value)}
-                    placeholder="ou digite um comando, ex.: bom dia"
-                    className="w-full bg-transparent border border-hud-cyan/25 px-3 py-2 text-xs outline-none focus:border-hud-cyan"
-                  />
-                </form>
+              <div className="hud-core flex-1 min-w-0 flex items-center justify-center">
+                <CoreOrb status={status} onClick={onCoreClick} levelRef={voiceLevel} />
+              </div>
+
+              <div className="hud-away hud-away-right" style={{ "--i": 1 }}>
+                <RightConsole logs={logs} recentMedia={recentMedia} />
+              </div>
+            </div>
+
+            <div className="hud-away hud-away-bottom flex items-end gap-4" style={{ "--i": 2 }}>
+              <button
+                type="button"
+                onClick={onCoreClick}
+                className={`hud-mic ${listening ? "is-listening" : ""}`}
+                title="Falar (ou diga Jarvis)"
+                aria-label="Falar"
+              >
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3z" />
+                  <path d="M19 11a7 7 0 01-14 0M12 18v3" />
+                </svg>
+              </button>
+              <form onSubmit={submitTyped} className="hud-input">
+                <input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder="O que você gostaria de fazer agora? ex.: bom dia"
+                />
+                <button type="submit" className="opacity-70 hover:opacity-100" aria-label="Enviar">›</button>
+              </form>
+              <div className="panel p-3.5 w-[26rem] max-w-[38%] text-sm space-y-1.5 hidden md:block">
+                {userText && <div className="text-hud-cyan/60 text-xs truncate">&gt; {userText}</div>}
+                <div className="text-cyan-100 leading-relaxed text-[13px] line-clamp-3">{reply}</div>
                 {!speech.supported && (
-                  <div className="text-hud-amber text-xs">
-                    Web Speech API indisponível neste navegador (use
-                    Chrome/Edge).
-                  </div>
+                  <div className="text-hud-amber text-xs">Web Speech API indisponível neste navegador (use Chrome/Edge).</div>
                 )}
-              </>
-            )}
+              </div>
+            </div>
           </div>
 
-          {!visualMode && <RightConsole logs={logs} />}
+          {/* A cena fica por cima do mesmo HUD: o núcleo recua, os painéis saem e o palco entra. */}
+          {visualMode && (
+            <SceneStage
+              scene={visualScene}
+              media={media}
+              player={player}
+              loading={sceneLoading}
+              dim={dim}
+              question={userText}
+              status={status}
+              notice={reply}
+              onClose={closeVisualMode}
+            />
+          )}
         </main>
 
         {visualMode && (

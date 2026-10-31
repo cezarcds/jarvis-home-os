@@ -17,3 +17,4 @@ google-analytics-data>=0.18
 mss>=9.0
 pillow>=10.4
 numpy>=1.26
+psutil>=5.9

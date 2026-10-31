@@ -25,6 +25,7 @@ from routines.api import router as routines_router
 from voice.ws import router as voice_router  # noqa: E402
 from actions import config as actions_config, hud, winapi  # noqa: E402
 from actions.api import router as actions_router  # noqa: E402
+from sysinfo import router as sysinfo_router  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,6 +103,7 @@ app.include_router(connections_router)
 app.include_router(routines_router)  # depois de criar o app e o CORS
 app.include_router(voice_router)
 app.include_router(actions_router)
+app.include_router(sysinfo_router)
 
 
 class Message(BaseModel):
@@ -456,7 +458,7 @@ Retorne SOMENTE JSON válido, sem markdown, neste formato:
              "edges":[{"from":"reator","to":"vapor","label":"calor","flow":true}]},
  "chart": {"type":"bar|line","title":"...","unit":"%","series":[{"label":"...","value":0}]},
  "geo": {"points":[{"id":"sp","label":"São Paulo","detail":"...","lat":-23.55,"lon":-46.63,"layer":"cidades"}],"links":[{"from":"sp","to":"rj","label":"rota"}]},
- "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye","media":"m1","reveal":["reator"],"focus":["reator"],"caption":"legenda opcional"}]
+ "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye","media":"m1","show":["m1","m2","m3"],"reveal":["reator"],"focus":["reator"],"caption":"legenda opcional","callouts":[{"text":"chamada curta","side":"left|right","at":0.3,"kind":"fact|term|number","target":"m1"}]}]
 }
 Todos os blocos (media, diagram, chart, geo) são OPCIONAIS: inclua só o que o assunto realmente pede, e use null ou omita o resto.
 
@@ -468,23 +470,28 @@ COMO ESCOLHER O QUE MOSTRAR
 - Pergunta simples ou conversacional ("que horas", "me conte uma piada"): cena mínima, 1 ou 2 beats só com layout "title", sem media, diagram, chart nem geo.
 
 COMO DIRIGIR (beats)
-- A cena é para OLHAR e OUVIR, não para ler. A tela mostra imagens, desenhos, mapas e gráficos; quase não tem texto. Quem explica é a fala.
+- A cena é para OLHAR e OUVIR, não para ler. A tela mostra imagens, desenhos, mapas e gráficos; o único texto são as CHAMADAS curtas (veja abaixo). Quem explica é a fala.
 - 3 a 7 beats. Cada "say" tem UMA frase curta e natural (no máximo 2, até 180 caracteres) para ser FALADA (sem markdown, listas, emojis, parênteses ou siglas difíceis de ler). Juntos, os beats formam uma explicação completa e bem encadeada.
 - "caption" é opcional e deve ter no máximo 4 palavras (um rótulo, nunca uma frase). Prefira deixar vazio.
 - Mostre VÁRIAS coisas ao mesmo tempo sempre que o assunto permitir: o layout "split" põe a imagem/vídeo ao lado do diagrama, do gráfico ou do mapa. Use "split" como padrão depois do primeiro beat; use "diagram", "chart" ou "eye" sozinhos só quando o visual precisa de tela cheia.
 - O primeiro beat contextualiza: layout "media" (ou "title") com a imagem principal. Depois use "split" ou "diagram". O último beat fecha a ideia.
 - "reveal" lista os ids de nós/pontos que ENTRAM em cena naquele beat, na ordem em que são citados na fala. Todos os nós devem ser revelados em algum beat. "focus" lista 1 ou 2 ids que a fala está destacando agora.
-- layouts: title = título grande sobre a imagem; media = imagem/vídeo grande; diagram = diagrama em tela cheia (mídia vira miniatura); split = mídia à esquerda e, à direita, o diagrama (ou o gráfico, ou o mapa, se não houver diagrama); chart = gráfico em tela cheia; eye = mapa panorâmico em tela cheia (precisa de geo).
+- layouts: title = título grande com a mídia ao fundo; media = mural com várias imagens e vídeos ao mesmo tempo; diagram = diagrama grande (a mídia vira uma coluna de miniaturas); split = mural à esquerda e, à direita, o diagrama (ou o gráfico, ou o mapa, se não houver diagrama); chart = gráfico grande; eye = mapa panorâmico (precisa de geo).
 - Coordenadas do diagrama: x de 8 a 92 e y de 12 a 88, em porcentagem do palco. Processos fluem da esquerda para a direita (ou em círculo, se for ciclo). Dê pelo menos 18 pontos de distância entre nós para não se sobreporem.
 - icon (opcional) escolha entre: atom bolt flame drop gear fan cloud sun wind cell dna brain heart globe building factory chip database network lock rocket planet book scale coin chart person leaf thermo magnet wave flask pipe shield clock eye pin.
 - Rótulos curtos (até 3 palavras). detail com no máximo 8 palavras, e só quando acrescenta algo que a imagem não mostra.
 
 MÍNIMO VISUAL (vale para qualquer pergunta que não seja conversa solta)
-- media com pelo menos 2 itens: uma imagem do assunto principal e outra de um detalhe ou ângulo diferente; acrescente um item kind "video" quando houver movimento ou processo visível. Troque a mídia mostrada ao longo dos beats (campo "media" de cada beat), em vez de repetir a mesma imagem.
+- media com 3 a 5 itens, que aparecem JUNTOS na tela, como um mural: uma imagem do assunto principal, outras de detalhes ou ângulos diferentes e, sempre que houver movimento ou processo visível, 1 ou 2 itens kind "video". Em cada beat, "show" lista quais mídias ficam visíveis (2 a 4 ids) e "media" aponta a destacada. Troque a destacada e o conjunto ao longo dos beats, em vez de repetir sempre o mesmo.
 - Além da mídia, inclua pelo menos UM bloco estruturado: diagram, chart ou geo.
 - Se a pergunta cita lugares, países, cidades, usinas, rotas ou "onde", geo é OBRIGATÓRIO, com 3 a 10 pontos e pelo menos um beat com layout "eye". Use só coordenadas que você conhece com segurança; na dúvida, use a coordenada da cidade.
 - Todo bloco que você criar precisa de um beat que o mostre: diagram em "diagram" ou "split", chart em "chart", geo em "eye".
 - 4 a 7 beats, e a cada beat algo muda na tela (outra mídia, novos ids em "reveal", outro layout). Nunca fique com a mesma tela parada por dois beats seguidos.
+
+CHAMADAS (texto curto na tela)
+- Cada beat pode ter de 1 a 3 chamadas: rótulos de 2 a 6 palavras que entram pela esquerda e pela direita enquanto a fala os cita. São termos, nomes, números ou fatos-chave do que está sendo dito, nunca a frase inteira nem uma repetição do "say".
+- "at" vai de 0 a 1 e diz em que ponto da fala a chamada entra (0 = início, 1 = fim), na ordem em que o assunto é citado; deixe pelo menos 0.2 de distância entre chamadas do mesmo beat. "side" alterna left e right. "kind": "number" para valores (ex.: "93 milhões de km"), "term" para conceitos e nomes, "fact" para o resto. "target" (opcional) é o id da mídia ou do nó/ponto a que a chamada se refere.
+- Só escreva números e fatos que você sabe com certeza.
 
 CONTINUIDADE
 - Se houver "CENA ANTERIOR" e a nova pergunta for um aprofundamento (ex.: "e como ocorre a fissão?"), monte uma cena NOVA focada no detalhe pedido, sem repetir o que já foi mostrado. Se o assunto mudou, ignore a cena anterior.
@@ -497,7 +504,7 @@ class SceneRequest(BaseModel):
     messages: List[Message]
     previous: Optional[Dict[str, Any]] = None
     temperature: Optional[float] = 0.5
-    max_tokens: Optional[int] = 2500
+    max_tokens: Optional[int] = 3400
 
 
 def _facts_block(facts: str) -> str:

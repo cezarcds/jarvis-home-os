@@ -85,6 +85,7 @@ export function askAssistant(messages, sessionId) {
 }
 
 export const getVoiceStatus = () => request("/v1/voice/status");
+export const fetchSystemStats = () => request("/v1/system/stats");
 export const listRoutines = () => request("/v1/routines");
 export const listTools = () => request("/v1/tools");
 export const createRoutine = (r) => request("/v1/routines", { method: "POST", body: JSON.stringify(r) });
