@@ -27,6 +27,7 @@ ICONS = {
 }
 CHART_TYPES = {"bar", "line"}
 MEDIA_KINDS = {"image", "video"}
+NEWS_KIND = "news"    # cartão de notícia pronto (só o módulo news cria; o diretor continua pedindo image/video)
 
 MAX_BEATS = 8
 MAX_NODES = 12
@@ -262,25 +263,51 @@ def _clean_geo(raw: Any) -> dict | None:
     return {"points": points, "links": links}
 
 
+def _http_url(value: Any, limit: int) -> str:
+    """Só aceita http/https (nada de javascript: ou data:), pois a URL vira link e imagem na tela."""
+    url = _s(value, limit)
+    return url if url.lower().startswith(("http://", "https://")) else ""
+
+
+def _clean_news_item(raw: Any) -> dict | None:
+    """Cartão de notícia pronto (vem do módulo de notícias, nunca do diretor): título, veículo, link e capa."""
+    if not isinstance(raw, dict):
+        return None
+    title, url = _s(raw.get("title"), 200), _http_url(raw.get("url"), 600)
+    if not title or not url:
+        return None
+    return {
+        "title": title,
+        "outlet": _s(raw.get("outlet"), 60),
+        "url": url,
+        "image": _http_url(raw.get("image"), 800) or None,
+        "published": _s(raw.get("published"), 40) or None,
+    }
+
+
 def _clean_media(raw: Any) -> list[dict]:
     out, used = [], set()
     for idx, rm in enumerate((raw if isinstance(raw, list) else [])[:MAX_MEDIA]):
         if not isinstance(rm, dict):
             continue
-        query = _s(rm.get("query"), 80)
+        kind = _s(rm.get("kind"), 8).lower()
+        news = _clean_news_item(rm.get("news")) if kind == NEWS_KIND else None
+        query = _s(rm.get("query"), 80) or (news["title"][:80] if news else "")
         if len(query) < 3:
             continue
         mid = _slug(rm.get("id"), f"m{idx + 1}")
         while mid in used:
             mid += "_"
         used.add(mid)
-        kind = _s(rm.get("kind"), 8).lower()
-        out.append({
+        item = {
             "id": mid,
-            "kind": kind if kind in MEDIA_KINDS else "image",
+            "kind": NEWS_KIND if news else (kind if kind in MEDIA_KINDS else "image"),
             "query": query,
             "caption": _s(rm.get("caption"), 90),
-        })
+        }
+        if news:
+            item["news"] = news
+        out.append(item)
     return out
 
 

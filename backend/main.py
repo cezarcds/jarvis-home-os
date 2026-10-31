@@ -26,6 +26,8 @@ from voice.ws import router as voice_router  # noqa: E402
 from actions import config as actions_config, hud, winapi  # noqa: E402
 from actions.api import router as actions_router  # noqa: E402
 from sysinfo import router as sysinfo_router  # noqa: E402
+from news.router import router as news_router  # noqa: E402
+from news.scene import news_scene_for  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,6 +106,7 @@ app.include_router(routines_router)  # depois de criar o app e o CORS
 app.include_router(voice_router)
 app.include_router(actions_router)
 app.include_router(sysinfo_router)
+app.include_router(news_router)  # /news/topics, /news/feed, /news/search
 
 
 class Message(BaseModel):
@@ -584,6 +587,11 @@ async def scene(req: SceneRequest):
         raise HTTPException(status_code=503, detail="Configure GROQ_API_KEY ou GEMINI_API_KEY no .env.")
     if not req.messages:
         raise HTTPException(status_code=400, detail="Envie pelo menos uma mensagem.")
+
+    # Pedido de notícias: pesquisa fontes reais e devolve uma cena de cartões (None se não for notícia).
+    news_scene = await news_scene_for([m.model_dump() for m in req.messages], persona=SYSTEM_PROMPT)
+    if news_scene:
+        return news_scene
 
     chat_req = ChatRequest(messages=req.messages, temperature=req.temperature, max_tokens=req.max_tokens)
     started = time.time()

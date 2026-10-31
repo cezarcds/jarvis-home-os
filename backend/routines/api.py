@@ -120,6 +120,18 @@ async def assistant(req: AssistantRequest):
         log.info("Rotina '%s' (gatilho direto)", alvo.id)
         return {**_resposta_rotina(await engine.run_routine(alvo)), "provider": None}
 
+    # 4b) Notícias: pesquisa fontes reais e devolve uma cena de cartões para o palco
+    if not actions_handler.vision_active(sid):
+        try:
+            from news.scene import news_scene_for
+
+            cena = await news_scene_for(history, persona=_system_chat())
+            if cena:
+                return {"kind": "noticias", "text": cena["answer"], "scene": None,
+                        "news_scene": cena, "provider": cena.get("provider")}
+        except Exception:  # noqa: BLE001 - notícias nunca podem derrubar o assistente
+            log.exception("Falha no fluxo de notícias; seguindo o fluxo normal")
+
     # No modo análise de tela, pula o roteamento por LLM (uma chamada a menos por pergunta).
     decisao = None if actions_handler.vision_active(sid) else await intent.llm_route(text, rotinas)
     if decisao:

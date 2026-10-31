@@ -34,7 +34,7 @@ export default function HeadlinesCard({ initialTopic = "mercado", limit = 4 }) {
   }, [load]);
 
   return (
-    <div className="panel p-3 w-72 max-w-full text-xs space-y-2">
+    <div className="panel p-3 w-64 max-w-full text-xs space-y-2">
       <div className="flex items-center gap-3 tracking-[0.3em] text-[10px] uppercase">
         <span className="text-hud-cyan/60">Manchetes</span>
         {tabs.slice(0, 4).map((t) => (

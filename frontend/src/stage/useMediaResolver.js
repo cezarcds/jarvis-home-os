@@ -44,6 +44,19 @@ export function useMediaResolver(scene) {
     scene.media.forEach(async (m) => {
       let result = { status: "none", item: null };
       try {
+        if (m.kind === "news" && m.news) {
+          // Notícia já chega pronta do backend (título, veículo, link, capa): só confere se a capa carrega.
+          let image = m.news.image || null;
+          if (image) {
+            try { await preloadImage(image); } catch { image = null; }
+          }
+          if (!cancelled) {
+            setState((s) => (s.sceneId === sceneId
+              ? { ...s, entries: { ...s.entries, [m.id]: { status: "ready", item: { kind: "news", ...m.news, image } } } }
+              : s));
+          }
+          return;
+        }
         result = await resolveMedia(m, { searchAll: searchMediaAll, preload: preloadImage });
         if (result.status === "none") {
           // "tried" vem do backend e diz qual provedor falhou (ex.: commons[...]: HTTP 403).

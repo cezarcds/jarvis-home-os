@@ -3,6 +3,7 @@ import CoreRings from "./components/CoreRings.jsx";
 import CoreOrb from "./core/CoreOrb.jsx";
 import { useVoiceLevel } from "./core/useVoiceLevel.js";
 import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
+import HeadlinesCard from "./components/news/HeadlinesCard.jsx";
 import NavRail from "./components/NavRail.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { handsFreeSupported, useHandsFree } from "./hooks/useHandsFree.js";
@@ -165,6 +166,17 @@ export default function App() {
             until: r.vision.active ? Date.now() + r.vision.follow_up_seconds * 1000 : 0,
           };
           if (r.kind === "visao" && r.vision.label) log(`Tela analisada: ${r.vision.label}`);
+        }
+        if (r.news_scene) {
+          // Notícias: o assistente já pesquisou; o palco mostra os cartões e narra (como em sendVisual).
+          const ns = r.news_scene;
+          log(`Notícias: ${ns.title} (${ns.media.length} fontes).`);
+          history.current[history.current.length - 1] = { role: "assistant", content: ns.answer };
+          previousScene.current = summarize(ns);
+          setReply(ns.answer);
+          setVisualMode(true);
+          setVisualScene(ns);
+          return;
         }
         if (r.scene) {
           setBriefing(r.scene);
@@ -492,7 +504,10 @@ export default function App() {
           <div className="flex-1 min-w-0 min-h-0 flex flex-col px-6 pb-4 gap-4">
             <div className="flex-1 min-h-0 flex items-center justify-between gap-6">
               <div className="hud-away hud-away-left" style={{ "--i": 0 }}>
-                <LeftPanels />
+                <div className="flex flex-col gap-4">
+                  <LeftPanels />
+                  <HeadlinesCard />
+                </div>
               </div>
 
               <div className="hud-core flex-1 min-w-0 flex items-center justify-center">

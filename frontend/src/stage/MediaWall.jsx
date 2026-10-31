@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import NewsFace from "./NewsFace.jsx";
+import "./news-cards.css";
 
 // Imagem com plano B: se a URL principal falhar na tela, troca por fallback_url (quando o backend mandou).
 function SafeImg({ item, alt }) {
@@ -19,6 +21,7 @@ function SafeImg({ item, alt }) {
 
 function Content({ entry, featured, visible, alt }) {
   const { item } = entry;
+  if (item.kind === "news") return <NewsFace item={item} featured={featured} />;
   if (item.kind === "image") return <SafeImg key={item.url} item={item} alt={alt} />;
   if (item.src) {
     // Vários vídeos tocam ao mesmo tempo (mudos e em laço), como um mural.
