@@ -16,7 +16,7 @@ import re
 import unicodedata
 from typing import Any
 
-LAYOUTS = {"title", "media", "diagram", "split", "chart", "eye"}
+LAYOUTS = {"title", "media", "diagram", "split", "chart", "eye", "board"}
 NODE_KINDS = {"source", "process", "store", "output", "actor", "concept", "hazard"}
 ICONS = {
     "atom", "bolt", "flame", "drop", "gear", "fan", "cloud", "sun", "wind",
@@ -47,6 +47,13 @@ MARK_ICONS = (
     "check cross star search pin flag scale megaphone newspaper lightbulb rocket leaf sun cloud phone mail factory vote"
 ).split()
 IMPACT_TONES = {"neutral", "alert", "positive"}
+# Quadro negro desenhado (layout "board"). Precisa ser igual às chaves de ICONS em
+# frontend/src/components/ChalkBoard.jsx (qualquer outro nome vira um círculo).
+BOARD_ICONS = (
+    "atom bolt flame drop gear globe book people house coin trend-up warning lightbulb check search "
+    "newspaper shield heart clock leaf sun cloud megaphone vote"
+).split()
+MAX_BOARD_ITEMS = 6
 CALLOUT_GAP = 0.14    # distância mínima entre chamadas do mesmo beat (fração da fala)
 MAX_POINTS = 14
 MAX_SERIES = 10
@@ -295,6 +302,28 @@ def _clean_media(raw: Any) -> list[dict]:
     return out
 
 
+def _clean_board(raw: Any) -> dict | None:
+    """Quadro negro: 2 a 6 itens (ícone + rótulo curto) que se desenham em sequência."""
+    if not isinstance(raw, dict):
+        return None
+    items = []
+    for ri in (raw.get("items") if isinstance(raw.get("items"), list) else [])[:MAX_BOARD_ITEMS]:
+        if not isinstance(ri, dict):
+            continue
+        label = " ".join(_s(ri.get("label"), 40).split()[:3])
+        if not label:
+            continue
+        icon = _s(ri.get("icon"), 16).lower()
+        items.append({
+            "icon": icon if icon in BOARD_ICONS else None,
+            "label": label[:22],
+            "detail": " ".join(_s(ri.get("detail"), 60).split()[:6]),
+        })
+    if len(items) < 2:
+        return None
+    return {"title": _s(raw.get("title"), 50), "items": items}
+
+
 def _norm_text(value: str) -> str:
     plain = "".join(c for c in unicodedata.normalize("NFKD", value) if not unicodedata.combining(c))
     return re.sub(r"[^a-z0-9]+", "", plain.lower())
@@ -435,7 +464,7 @@ def _auto_callouts(reveal: list[str], labels: dict) -> list[dict]:
     return _arrange_callouts(items)
 
 
-def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
+def _clean_beats(raw: Any, diagram, chart, geo, media, board=None) -> list[dict]:
     node_ids = {n["id"] for n in diagram["nodes"]} if diagram else set()
     point_ids = {p["id"] for p in geo["points"]} if geo else set()
     media_ids = {m["id"] for m in media}
@@ -445,6 +474,7 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
 
     beats = []
     prev_impact = False
+    board_used = False
     for rb in (raw if isinstance(raw, list) else [])[:MAX_BEATS]:
         if not isinstance(rb, dict):
             continue
@@ -465,6 +495,11 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
             layout = "diagram" if diagram else "title"
         if layout in ("media", "split") and not media:
             layout = "diagram" if diagram else ("chart" if chart else ("eye" if geo else "title"))
+        # Quadro negro: só existe se o bloco veio, e só uma vez por cena (senão ele se redesenharia do zero).
+        if layout == "board" and (not board or board_used):
+            layout = "diagram" if diagram else ("media" if media else "title")
+        is_board = layout == "board"
+        board_used = board_used or is_board
 
         def pick(key, valid):
             seen, res = set(), []
@@ -481,9 +516,10 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
         if show and featured and featured not in show:
             show = [featured] + show[: MAX_SHOW - 1]
         reveal = pick("reveal", node_ids | point_ids)
-        callouts = _clean_callouts(rb.get("callouts"), say, targets) or _auto_callouts(reveal, labels)
+        # No quadro negro o desenho é o espetáculo: sem chamadas, palavra-impacto nem marcas por cima.
+        callouts = [] if is_board else (_clean_callouts(rb.get("callouts"), say, targets) or _auto_callouts(reveal, labels))
         # Palavra-impacto é tempero: nunca em dois beats seguidos.
-        impact = None if prev_impact else _clean_impact(rb.get("impact"))
+        impact = None if (prev_impact or is_board) else _clean_impact(rb.get("impact"))
         prev_impact = impact is not None
         beats.append({
             "say": say,
@@ -495,7 +531,7 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
             "focus": pick("focus", node_ids | point_ids),
             "callouts": callouts,
             "impact": impact,
-            "marks": _clean_marks(rb.get("marks"), targets),
+            "marks": [] if is_board else _clean_marks(rb.get("marks"), targets),
         })
     return beats
 
@@ -517,7 +553,7 @@ def _ensure_visible(beats: list[dict], ok_layouts: set[str], promote_to: str, pr
 
 def visual_blocks(scene: dict) -> int:
     """Quantos tipos de recurso visual a cena usa (mídia, diagrama, gráfico, mapa)."""
-    return sum(bool(scene.get(k)) for k in ("media", "diagram", "chart", "geo"))
+    return sum(bool(scene.get(k)) for k in ("media", "diagram", "chart", "geo", "board"))
 
 
 def sanitize_scene(raw: dict) -> dict:
@@ -529,7 +565,8 @@ def sanitize_scene(raw: dict) -> dict:
     chart = _clean_chart(raw.get("chart"))
     geo = _clean_geo(raw.get("geo"))
     media = _clean_media(raw.get("media"))
-    beats = _clean_beats(raw.get("beats"), diagram, chart, geo, media)
+    board = _clean_board(raw.get("board"))
+    beats = _clean_beats(raw.get("beats"), diagram, chart, geo, media, board)
     if not beats:
         raise ValueError("Cena sem beats utilizáveis")
 
@@ -545,6 +582,11 @@ def sanitize_scene(raw: dict) -> dict:
     geo_layouts = {"eye"} | ({"split"} if not diagram and not chart else set())
     if geo:
         _ensure_visible(beats, geo_layouts, "eye", promoted)
+    if board:
+        _ensure_visible(beats, {"board"}, "board", promoted)
+        for b in beats:  # beat promovido a "board": limpa o que competiria com o desenho
+            if b["layout"] == "board":
+                b["callouts"], b["marks"], b["impact"] = [], [], None
 
     # Revelação progressiva: o que o LLM não citou em nenhum beat entra no
     # primeiro beat cujo layout realmente mostra aquele bloco.
@@ -574,6 +616,7 @@ def sanitize_scene(raw: dict) -> dict:
         "diagram": diagram,
         "chart": chart,
         "geo": geo,
+        "board": board,
         "beats": beats,
     }
 
@@ -594,4 +637,4 @@ def fallback_scene(answer: str, title: str = "Explicação") -> dict:
         {"say": c, "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": [], "impact": None, "marks": []}
         for c in chunks[:MAX_BEATS]
     ] or [{"say": answer.strip()[:420] or "Sem resposta.", "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": [], "impact": None, "marks": []}]
-    return {"title": title, "kind": "concept", "media": [], "diagram": None, "chart": None, "geo": None, "beats": beats}
+    return {"title": title, "kind": "concept", "media": [], "diagram": None, "chart": None, "geo": None, "board": None, "beats": beats}

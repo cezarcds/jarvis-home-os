@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import llm
 
-from . import ActionError, apps, config, intents, vision, winapi
+from . import ActionError, apps, config, gate, intents, vision, winapi
 from .intents import OpenIntent
 
 log = logging.getLogger("jarvis.actions")
@@ -209,15 +209,60 @@ async def follow_up_vision(text: str, sid: str, history: List[Dict[str, str]]) -
 
 # ---------- Entrada principal ----------
 
+async def _executar_acao(name: str, params: Dict[str, Any], sid: str) -> Optional[Dict[str, Any]]:
+    """Implementação das ações locais. NÃO chamar direto: quem executa é o gate
+    (actions/tools.py registra estas funções como ferramentas e o gate as invoca)."""
+    if name == "app.abrir":
+        app = str((params or {}).get("app") or "").strip()
+        if not app:
+            return _resp("acao", "Qual programa você quer abrir?")
+        organizar = (params or {}).get("organizar", True)
+        # None = frase longa que provavelmente não era pedido de abrir programa (o chamador decide)
+        return await _do_open(OpenIntent(app=app, organize=bool(organizar), app_words=len(app.split())), sid)
+    if name == "tela.organizar":
+        return await _do_layout("arrange", sid)
+    if name == "tela.restaurar_jarvis":
+        return await _do_layout("jarvis_full", sid)
+    return _resp("acao", "Não sei executar essa ação.")
+
+
+def resposta_pendente(pendente: Dict[str, Any]) -> Dict[str, Any]:
+    """Resposta ao HUD quando o gate pede confirmação: o cartão mostra o texto exato."""
+    return {"kind": "confirmacao", "text": "Preciso da sua confirmação na tela: " + pendente["texto"],
+            "scene": None, "provider": None, "pendente": pendente}
+
+
+def resposta_do_resultado(res: Any) -> Dict[str, Any]:
+    """Resposta ao HUD a partir do resultado de uma ferramenta que passou pelo gate."""
+    if isinstance(res, dict) and isinstance(res.get("resposta"), dict):
+        return res["resposta"]
+    texto = (res or {}).get("falado") if isinstance(res, dict) else None
+    return _resp("acao", texto or "Pronto.")
+
+
+async def _via_gate(name: str, params: Dict[str, Any], sid: str, origem: str) -> Optional[Dict[str, Any]]:
+    ctx = gate.Contexto(sid=sid, origem=origem)
+    try:
+        res = await gate.executar(name, params, ctx)
+    except gate.ConfirmacaoPendente as pend:
+        return resposta_pendente(pend.pendente)
+    except gate.ExecucaoCancelada:
+        return _resp("acao", "Interrompido.")
+    except (gate.AcaoNegada, gate.ToolError) as exc:
+        return _resp("acao", str(exc))
+    return resposta_do_resultado(res) if (res or {}).get("resposta") is not None else None
+
+
 async def try_handle(text: str, sid: str, history: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
     """Devolve a resposta se o pedido era uma ação/visão; None para seguir o fluxo normal."""
     if config.actions_enabled():
         oi = intents.parse_open(text)
         if oi:
-            return await _do_open(oi, sid)
+            return await _via_gate("app.abrir", {"app": oi.app, "organizar": oi.organize}, sid, "assistente")
         lay = intents.parse_layout(text)
         if lay:
-            return await _do_layout(lay, sid)
+            nome = "tela.organizar" if lay == "arrange" else "tela.restaurar_jarvis"
+            return await _via_gate(nome, {}, sid, "assistente")
     vi = intents.parse_vision(text)
     if vi:
         return await _do_vision(vi, text, sid, history)
@@ -225,18 +270,10 @@ async def try_handle(text: str, sid: str, history: List[Dict[str, str]]) -> Opti
 
 
 async def run_tool(name: str, params: Dict[str, Any], sid: str) -> Dict[str, Any]:
-    """Ferramenta de ação escolhida pelo LLM (roteamento por significado)."""
+    """Ferramenta de ação escolhida pelo LLM (roteamento por significado). Passa pelo gate."""
     if not config.actions_enabled():
         return _resp("acao", "As ações no computador estão desligadas nas configurações.")
-    if name == "app.abrir":
-        app = str((params or {}).get("app") or "").strip()
-        if not app:
-            return _resp("acao", "Qual programa você quer abrir?")
-        organizar = (params or {}).get("organizar", True)
-        res = await _do_open(OpenIntent(app=app, organize=bool(organizar), app_words=len(app.split())), sid)
-        return res or _resp("acao", f"Não encontrei {app} entre os seus programas.")
-    if name == "tela.organizar":
-        return await _do_layout("arrange", sid)
-    if name == "tela.restaurar_jarvis":
-        return await _do_layout("jarvis_full", sid)
-    return _resp("acao", "Não sei executar essa ação.")
+    r = await _via_gate(name, params, sid, "llm")
+    if r is None and name == "app.abrir":  # o LLM escolheu abrir algo que não está no catálogo de apps
+        return _resp("acao", f"Não encontrei {(params or {}).get('app')} entre os seus programas.")
+    return r or _resp("acao", "Não sei executar essa ação.")

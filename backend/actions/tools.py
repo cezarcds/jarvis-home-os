@@ -1,28 +1,33 @@
 """Registra as ações no catálogo de ferramentas (risco 'acao_local').
 
-O motor de rotinas continua só executando ferramentas de leitura; estas são chamadas pelo
-handler (comando direto ou escolha do LLM), nunca por rotinas salvas.
+Quem executa estas funções é o gate (actions/gate.py); ninguém as chama direto. O motor de
+rotinas só deixa passar nível 0, então rotinas salvas nunca as acionam.
 """
 from typing import Tuple
 
 from routines.tools.registry import Param, tool
 
-from . import config, winapi
+from . import config
 
 
 def _check() -> Tuple[bool, str]:
     if not config.actions_enabled():
         return False, "Ações desligadas (JARVIS_ACTIONS_ENABLED=0)"
-    if not winapi.AVAILABLE:
+    from . import handler
+
+    if not handler.win.AVAILABLE:  # handler.win é trocável nos testes (e é o que as ações usam)
         return False, "Disponível só no Windows"
     return True, ""
 
 
 async def _run(name: str, params: dict) -> dict:
-    from . import handler
+    from . import gate, handler
 
-    r = await handler.run_tool(name, params, "tool")
-    return {"type": "acao", "title": "Ação", "data": {"mensagem": r["text"]}, "falado": r["text"], "resumo_llm": r["text"]}
+    # A sessão vem do contexto do gate (setada em executar), não de um "tool" fixo.
+    r = await handler._executar_acao(name, params, gate.sessao_atual())
+    texto = r["text"] if r else ""  # r é None quando não era um pedido de abrir programa
+    return {"type": "acao", "title": "Ação", "data": {"mensagem": texto}, "falado": texto,
+            "resumo_llm": texto, "resposta": r}
 
 
 @tool("app.abrir", "abrir programa",

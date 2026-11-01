@@ -36,12 +36,36 @@ CREATE TABLE IF NOT EXISTS audit_log (
 """
 
 
+# Colunas da auditoria estruturada de ações (Fase 1). São nulas nas linhas antigas (admin, OAuth),
+# então o painel admin e recent_audit() continuam funcionando sem mudança.
+AUDIT_ACTION_COLUMNS = {
+    "run_id": "TEXT", "tool": "TEXT", "nivel": "INTEGER", "params": "TEXT", "resultado": "TEXT",
+    "confirmacao": "TEXT", "sessao": "TEXT", "contaminado": "INTEGER", "duracao_ms": "INTEGER", "origem": "TEXT",
+}
+_migrated: set[str] = set()
+
+
+def _migrate(conn: sqlite3.Connection, path) -> None:
+    """Acrescenta as colunas que faltam em audit_log (bancos criados antes da Fase 1). Só roda
+    uma vez por arquivo de banco em cada execução do programa."""
+    key = str(path)
+    if key in _migrated:
+        return
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(audit_log)")}
+    for col, typ in AUDIT_ACTION_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE audit_log ADD COLUMN {col} {typ}")
+    conn.commit()
+    _migrated.add(key)
+
+
 def connect() -> sqlite3.Connection:
     path = data_dir() / DB_FILE
     new = not path.exists()
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn, path)
     if new:
         try:
             os.chmod(path, 0o600)
@@ -146,4 +170,27 @@ def audit(event: str, detail: str = "") -> None:
 def recent_audit(limit: int = 20) -> list[dict[str, Any]]:
     with closing(connect()) as c:
         rows = c.execute("SELECT ts,event,detail FROM audit_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def audit_action(*, run_id: str, tool: str, nivel: int, resultado: str, params: Any = None,
+                 confirmacao: str = "nenhuma", sessao: str = "", contaminado: bool = False,
+                 duracao_ms: int | None = None, origem: str = "", detalhe: str = "") -> None:
+    """Registro estruturado de uma decisão ou execução do gate. `params` já deve vir redigido
+    (actions.redact.redigir); aqui só é serializado."""
+    payload = json.dumps(params, ensure_ascii=False, default=str)[:2000] if params is not None else None
+    with closing(connect()) as c, c:
+        c.execute(
+            "INSERT INTO audit_log(ts,event,detail,run_id,tool,nivel,params,resultado,confirmacao,sessao,"
+            "contaminado,duracao_ms,origem) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (time.time(), f"acao.{resultado}", detalhe[:500], run_id, tool, nivel, payload, resultado,
+             confirmacao, sessao, int(bool(contaminado)), duracao_ms, origem),
+        )
+
+
+def recent_actions(limit: int = 50) -> list[dict[str, Any]]:
+    with closing(connect()) as c:
+        rows = c.execute(
+            "SELECT id,ts,run_id,tool,nivel,params,resultado,confirmacao,sessao,contaminado,duracao_ms,origem,detail "
+            "FROM audit_log WHERE tool IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]

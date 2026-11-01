@@ -1,3 +1,5 @@
+import { authFetch } from "./session.js"; // ciclo com session.js é seguro: API_URL só é lido em tempo de execução
+
 // Em desenvolvimento (npm run dev, porta 5173) o backend está em :8000; com o HUD compilado
 // o próprio backend serve a página, então a origem é a mesma.
 export const API_URL =
@@ -8,7 +10,7 @@ export async function askJarvis(messages) {
   console.log("[JARVIS] POST /v1/chat/completions", messages);
   let res;
   try {
-    res = await fetch(`${API_URL}/v1/chat/completions`, {
+    res = await authFetch(`${API_URL}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages }),
@@ -47,7 +49,7 @@ export async function fetchWeather(lat = -23.55, lon = -46.63) {
 async function request(path, options) {
   let res;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await authFetch(`${API_URL}${path}`, {
       headers: { "Content-Type": "application/json" },
       ...options,
     });
@@ -93,12 +95,32 @@ export const updateRoutine = (id, r) => request(`/v1/routines/${id}`, { method: 
 export const deleteRoutine = (id) => request(`/v1/routines/${id}`, { method: "DELETE" });
 export const runRoutine = (id) => request(`/v1/routines/${id}/run`, { method: "POST" });
 
+// ---------- Tarefas do agente (Fase 2) ----------
+export const listTarefas = () => request("/v1/tarefas");
+export const estadoTarefas = () => request("/v1/tarefas/estado");
+export const getTarefa = (id) => request(`/v1/tarefas/${id}`);
+export const execucoesTarefa = (id) => request(`/v1/tarefas/${id}/execucoes`);
+export const executarTarefa = (id) => request(`/v1/tarefas/${id}/executar`, { method: "POST" });
+export const simularTarefa = (id) => request(`/v1/tarefas/${id}/simular`, { method: "POST" });
+export const ativarTarefa = (id, ativa) =>
+  request(`/v1/tarefas/${id}/ativa`, { method: "PUT", body: JSON.stringify({ ativa }) });
+export const importarTarefas = () => request("/v1/tarefas/importar", { method: "POST" });
+export const pausarAgendador = () => request("/v1/tarefas/agendador/pausar", { method: "POST" });
+export const retomarAgendador = () => request("/v1/tarefas/agendador/retomar", { method: "POST" });
+export const liberarItem = (id, chave) =>
+  request(`/v1/tarefas/${id}/itens?chave=${encodeURIComponent(chave)}`, { method: "DELETE" });
+
+// ---------- Gate: confirmação de ações e botão de parada (Fase 1) ----------
+export const confirmarAcao = (id) => request(`/v1/gate/${id}/confirmar`, { method: "POST" });
+export const negarAcao = (id) => request(`/v1/gate/${id}/negar`, { method: "POST" });
+export const pararTudo = () => request("/v1/gate/parar", { method: "POST" });
+
 // ---------- Motor de cenas (diretor visual) ----------
 
 export async function askScene(messages, previous = null) {
   let res;
   try {
-    res = await fetch(`${API_URL}/v1/scene`, {
+    res = await authFetch(`${API_URL}/v1/scene`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages, previous }),
@@ -119,7 +141,7 @@ export async function askScene(messages, previous = null) {
 // Resposta completa: { item, alternatives: [...], tried: [...] }.
 // "alternatives" são candidatos reserva; "tried" só vem quando nada foi achado (diagnóstico).
 export async function searchMediaAll(query, kind = "image") {
-  const res = await fetch(`${API_URL}/v1/media/search?q=${encodeURIComponent(query)}&kind=${kind}`);
+  const res = await authFetch(`${API_URL}/v1/media/search?q=${encodeURIComponent(query)}&kind=${kind}`);
   if (!res.ok) throw new Error(`Mídia HTTP ${res.status}`);
   return res.json();
 }

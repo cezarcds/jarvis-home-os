@@ -62,7 +62,7 @@ _SYSTEM = (
 
 
 async def llm_route(text: str, routines: List[Routine]) -> Optional[Dict[str, Any]]:
-    tools = catalog(only_available=True)
+    tools = [t for t in catalog(only_available=True) if not t.get("somente_tarefa")]
     if not any(r.ativa for r in routines) and not tools:
         return None
     prompt = f"{_catalogo(routines, tools)}\n\nPEDIDO DO USUÁRIO: {text}"

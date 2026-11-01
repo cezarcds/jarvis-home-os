@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "id": "videos-diarios",
+  "nome": "Gerar vídeos do projeto X e subir como privados",
+  "parametros": {
+    "quantidade": 5
+  },
+  "contrato": {
+    "escopo": {
+      "ferramentas": [
+        "vscode.abrir_projeto",
+        "comando.rodar",
+        "youtube.upload_privado"
+      ],
+      "pastas": [
+        "C:/projetos/projeto-x"
+      ],
+      "contas": [
+        "youtube:canal-teste"
+      ]
+    },
+    "limites": {
+      "timeout_min": 90,
+      "max_passos": 10,
+      "por_dia": {
+        "youtube.upload_privado": 5
+      },
+      "visibilidade": "privado"
+    },
+    "aprovado": false
+  },
+  "passos": [
+    {
+      "id": "abrir",
+      "ferramenta": "vscode.abrir_projeto",
+      "params": {
+        "pasta": "C:/projetos/projeto-x"
+      }
+    },
+    {
+      "id": "gerar",
+      "ferramenta": "comando.rodar",
+      "params": {
+        "nome": "gerar_videos",
+        "quantidade": "{quantidade}"
+      },
+      "verificar": {
+        "arquivos_em": "saida",
+        "minimo": "{quantidade}"
+      }
+    },
+    {
+      "id": "subir",
+      "ferramenta": "youtube.upload_privado",
+      "para_cada": "{gerar.arquivos}",
+      "params": {
+        "arquivo": "{item}",
+        "titulo": "Vídeo do dia {data}",
+        "descricao": "Gerado automaticamente.",
+        "tags": "teste",
+        "conta": "youtube:canal-teste"
+      }
+    }
+  ],
+  "agenda": {
+    "cron": "0 9 * * *",
+    "fuso": "America/Sao_Paulo"
+  }
+}

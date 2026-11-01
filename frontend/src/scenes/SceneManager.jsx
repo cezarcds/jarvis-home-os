@@ -17,6 +17,7 @@ const FADE_MS = 600;
 export default function SceneManager({ scene, overlayProps = {}, children }) {
   const [mounted, setMounted] = useState(null);
   const [visible, setVisible] = useState(false);
+  const [hudGone, setHudGone] = useState(false); // HUD totalmente invisível: sai da composição
 
   useEffect(() => {
     if (OVERLAYS[scene]) {
@@ -32,12 +33,24 @@ export default function SceneManager({ scene, overlayProps = {}, children }) {
   const Overlay = mounted ? OVERLAYS[mounted] : null;
   const hudHidden = Boolean(OVERLAYS[scene]);
 
+  // Depois do fade, o HUD sai de vez (visibility:hidden) para não ficar por baixo da cena.
+  useEffect(() => {
+    if (!hudHidden) {
+      setHudGone(false);
+      return;
+    }
+    const id = setTimeout(() => setHudGone(true), FADE_MS + 50);
+    return () => clearTimeout(id);
+  }, [hudHidden]);
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <div
         className="h-full w-full"
         style={{
-          transition: `opacity ${FADE_MS}ms ease, transform ${FADE_MS}ms ease, filter ${FADE_MS}ms ease`,
+          // Ao voltar, o HUD espera o painel quase terminar de sumir: nada de duas telas misturadas.
+          transition: `opacity ${FADE_MS}ms ease ${hudHidden ? 0 : Math.round(FADE_MS * 0.55)}ms, transform ${FADE_MS}ms ease, filter ${FADE_MS}ms ease`,
+          visibility: hudGone ? "hidden" : "visible",
           opacity: hudHidden ? 0 : 1,
           transform: hudHidden ? "scale(0.97)" : "scale(1)",
           filter: hudHidden ? "blur(6px)" : "none",

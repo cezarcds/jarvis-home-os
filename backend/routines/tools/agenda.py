@@ -100,12 +100,12 @@ async def _dia(delta: int, todos: bool, titulo: str, quando: str) -> Dict[str, A
     return _bloco(titulo, grupos, falado)
 
 
-@tool("agenda.hoje", "agenda de hoje", "Compromissos de hoje no Google Agenda", [_TODOS], check=check_google)
+@tool("agenda.hoje", "agenda de hoje", "Compromissos de hoje no Google Agenda", [_TODOS], check=check_google, le_dado_externo=True)
 async def agenda_hoje(todos_calendarios=False):
     return await _dia(0, bool(todos_calendarios), "Agenda de hoje", "hoje")
 
 
-@tool("agenda.amanha", "agenda de amanhã", "Compromissos de amanhã no Google Agenda", [_TODOS], check=check_google)
+@tool("agenda.amanha", "agenda de amanhã", "Compromissos de amanhã no Google Agenda", [_TODOS], check=check_google, le_dado_externo=True)
 async def agenda_amanha(todos_calendarios=False):
     return await _dia(1, bool(todos_calendarios), "Agenda de amanhã", "amanhã")
 
@@ -114,7 +114,7 @@ async def agenda_amanha(todos_calendarios=False):
     "agenda.proximos_dias", "agenda dos próximos dias",
     "Compromissos dos próximos N dias (a partir de hoje) no Google Agenda",
     [Param("dias", "int", 3, "Quantidade de dias", 1, 14), _TODOS],
-    check=check_google,
+    check=check_google, le_dado_externo=True,
 )
 async def agenda_proximos(dias=3, todos_calendarios=False):
     agora = datetime.now(TZ)

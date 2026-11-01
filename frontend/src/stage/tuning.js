@@ -8,6 +8,7 @@ export const AREAS = {
   halfRight: { x: 50, y: 9, w: 32, h: 76 },   // layout "split": diagrama, gráfico ou mapa à direita
   strip: { x: 70.5, y: 9, w: 11.5, h: 76 },   // layout "diagram": coluna de miniaturas
   diagramWithStrip: { x: 18, y: 9, w: 51, h: 76 },
+  board: { x: 16, y: 9, w: 68, h: 76 },        // layout "board": quadro negro desenhado
   titleWallOpacity: 0.55,                      // layout "title": o mural fica atrás do título, mais apagado
 };
 

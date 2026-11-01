@@ -12,7 +12,7 @@ from . import creator, engine, intent, store
 from .models import Routine
 from .textutil import normalize
 from .tools import REGISTRY, ToolError, catalog
-from actions import handler as actions_handler
+from actions import gate, handler as actions_handler
 from .tools.util import DIAS, TZ
 
 log = logging.getLogger("jarvis.api")
@@ -76,6 +76,14 @@ async def assistant(req: AssistantRequest):
     sid = req.session_id
     history = [m.model_dump() for m in req.messages if m.role != "system"][-12:]
 
+    # 0) "para tudo": tratado aqui, antes de qualquer LLM ou roteamento. Interrompe execuções,
+    #    descarta confirmações pendentes e limpa o rascunho de rotina da sessão.
+    if gate.eh_comando_parar(text):
+        r = gate.parar("voz")
+        creator.clear_pending(sid)
+        return {"kind": "parada", "text": "Parei tudo." if r["em_andamento"] or r["pendentes_descartadas"]
+                else "Não havia nada em execução.", "scene": None, "provider": None}
+
     # 1) Rascunho de rotina aguardando confirmação
     pending = creator.get_pending(sid)
     if pending:
@@ -118,7 +126,7 @@ async def assistant(req: AssistantRequest):
     alvo = intent.fast_match(text, rotinas)
     if alvo:
         log.info("Rotina '%s' (gatilho direto)", alvo.id)
-        return {**_resposta_rotina(await engine.run_routine(alvo)), "provider": None}
+        return {**_resposta_rotina(await engine.run_routine(alvo, sid)), "provider": None}
 
     # 4b) Notícias: pesquisa fontes reais e devolve uma cena de cartões para o palco
     if not actions_handler.vision_active(sid):
@@ -127,6 +135,7 @@ async def assistant(req: AssistantRequest):
 
             cena = await news_scene_for(history, persona=_system_chat())
             if cena:
+                gate.marcar_contaminado(sid)  # texto de sites entrou na conversa: ações de nível 2+ passam a pedir confirmação
                 return {"kind": "noticias", "text": cena["answer"], "scene": None,
                         "news_scene": cena, "provider": cena.get("provider")}
         except Exception:  # noqa: BLE001 - notícias nunca podem derrubar o assistente
@@ -146,7 +155,7 @@ async def assistant(req: AssistantRequest):
             except ValidationError:
                 r = None
         if r:
-            return {**_resposta_rotina(await engine.run_routine(r)), "provider": None}
+            return {**_resposta_rotina(await engine.run_routine(r, sid)), "provider": None}
 
     # 4b) Pergunta comum durante o modo análise (ou logo depois de olhar a tela)
     visao = await actions_handler.follow_up_vision(text, sid, history)

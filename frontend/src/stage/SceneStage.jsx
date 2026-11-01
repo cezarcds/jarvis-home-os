@@ -7,6 +7,8 @@ import Marks from "./Marks.jsx";
 import ImpactWord from "./ImpactWord.jsx";
 import ChartLayer from "./ChartLayer.jsx";
 import EyeLayer from "./EyeLayer.jsx";
+import ChalkBoard from "../components/ChalkBoard.jsx";
+import { AREAS } from "./tuning.js";
 import { effectiveLayout, rectsFor, rectStyle } from "./layouts.js";
 import { placeWall, wallIds } from "./wall.js";
 
@@ -60,8 +62,22 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
   const ids = scene ? wallIds(scene, beat, entries) : [];
   const hasMedia = ids.some((id) => entries[id]?.status === "ready");
   const ctx = { hasMedia, hasDiagram: !!scene?.diagram, hasChart: !!scene?.chart, hasGeo: !!scene?.geo };
-  const layout = scene && beat ? effectiveLayout(beat, ctx) : "title";
+  // Layout "board": o quadro negro ocupa o palco sozinho. Para o resto do palco ele conta como "title"
+  // (mural e diagrama apagados) e as camadas de texto/partículas/traços ficam em silêncio.
+  const isBoard = Boolean(scene?.board && beat?.layout === "board");
+  const layout = scene && beat ? effectiveLayout(isBoard ? { ...beat, layout: "title" } : beat, ctx) : "title";
   const rects = rectsFor(layout, ctx);
+
+  // O quadro continua montado durante o fade de saída (senão some de repente).
+  const [boardOn, setBoardOn] = useState(false);
+  useEffect(() => {
+    if (isBoard) {
+      setBoardOn(true);
+      return undefined;
+    }
+    const id = setTimeout(() => setBoardOn(false), 750);
+    return () => clearTimeout(id);
+  }, [isBoard]);
 
   const featured = beat?.media && ids.includes(beat.media) ? beat.media : ids[0];
   const cards = useMemo(
@@ -82,7 +98,7 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
   }, [scene?.id, layout]);
 
   const calloutCtx = { cards, nodes };
-  const wallOpacity = rects.media.o;
+  const wallOpacity = isBoard ? 0 : rects.media.o;
   const spokenAll = player.finished && !player.playing;
   // Para desenhar sobre um nó ele precisa estar visível: o diagrama aparecendo e o nó já revelado.
   const markNodes = useMemo(() => {
@@ -90,6 +106,8 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
     return Object.fromEntries(Object.entries(nodes).filter(([id]) => player.revealed?.has?.(id)));
   }, [nodes, rects.diagram.o, player.revealed]);
   const beatKey = scene && beat ? `${scene.id}:${player.index}` : "none";
+  // O desenho termina um pouco antes da fala acabar, para o quadro completo ficar visível no fim.
+  const boardProgress = player.finished && !player.playing ? 1 : Math.min(1, player.progress / 0.9);
 
   return (
     <section className={`st ${dim ? "is-dim" : ""} st-layout-${layout}`} aria-live="polite">
@@ -125,19 +143,34 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
               {rects.eye.o > 0.5 && <EyeLayer geo={scene.geo} revealed={player.revealed} focus={player.focus} active />}
             </div>
           )}
+          {/* quadro negro desenhado */}
+          {scene.board && (
+            <div
+              className="st-pane st-board"
+              style={{
+                left: `${AREAS.board.x}%`, top: `${AREAS.board.y}%`,
+                width: `${AREAS.board.w}%`, height: `${AREAS.board.h}%`,
+                opacity: isBoard ? 1 : 0,
+              }}
+            >
+              {(isBoard || boardOn) && (
+                <ChalkBoard key={scene.id} title={scene.board.title} items={scene.board.items} progress={isBoard ? boardProgress : 1} />
+              )}
+            </div>
+          )}
           {/* título */}
-          <div className={`st-titlecard ${layout === "title" && !beat?.impact ? "is-on" : ""}`}>
+          <div className={`st-titlecard ${layout === "title" && !beat?.impact && !isBoard ? "is-on" : ""}`}>
             <span>JARVIS · {scene.kind?.toUpperCase() || "EXPLICAÇÃO"}</span>
             <h1>{scene.title}</h1>
           </div>
           {/* palavra-impacto: se forma de partículas no meio da tela */}
-          {beat && <ImpactWord beatKey={beatKey} impact={beat.impact || null} progress={player.progress} finished={spokenAll} />}
+          {beat && <ImpactWord beatKey={beatKey} impact={isBoard ? null : beat.impact || null} progress={player.progress} finished={spokenAll} />}
           {/* quadro desenhado: círculos, setas, colchetes e ícones feitos à mão */}
           {beat && (
-            <Marks beatKey={beatKey} marks={beat.marks || []} progress={player.progress} finished={spokenAll} ctx={{ cards, nodes: markNodes }} />
+            <Marks beatKey={beatKey} marks={isBoard ? [] : beat.marks || []} progress={player.progress} finished={spokenAll} ctx={{ cards, nodes: markNodes }} />
           )}
           {/* chamadas de texto, no ritmo da fala */}
-          {beat && <Callouts beatKey={beatKey} callouts={beat.callouts || []} progress={player.progress} finished={spokenAll} ctx={calloutCtx} />}
+          {beat && <Callouts beatKey={beatKey} callouts={isBoard ? [] : beat.callouts || []} progress={player.progress} finished={spokenAll} ctx={calloutCtx} />}
         </div>
       )}
 

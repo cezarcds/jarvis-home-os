@@ -8,16 +8,16 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi.testclient import TestClient  # noqa: E402
-
 import llm  # noqa: E402
 from actions import apps, handler, vision  # noqa: E402
 from actions.layout import Monitor, Rect  # noqa: E402
 from actions.winapi import WindowInfo  # noqa: E402
 from main import app  # noqa: E402
+from connections import db  # noqa: E402
 from routines import creator, store  # noqa: E402
+from conftest import LocalClient  # noqa: E402
 
-client = TestClient(app)
+client = LocalClient(app)
 
 M1 = Monitor(0, Rect(0, 0, 1920, 1080), Rect(0, 0, 1920, 1040), primary=True)
 HUD = WindowInfo(1, "JARVIS // Home OS", "chrome.exe", Rect(600, 100, 1300, 800))
@@ -95,6 +95,12 @@ def test_abre_vscode_e_divide_a_tela(mundo):
     assert mundo.win.placed[2] == Rect(0, 0, 1280, 1040)      # programa em 2/3
     assert mundo.win.placed[1] == Rect(1280, 0, 1920, 1040)   # Jarvis no 1/3 restante
     assert mundo.win.fronted[-1] == 2
+
+
+def test_abrir_programa_passa_pelo_gate_e_gera_auditoria(mundo):
+    falar("Jarvis, abre o VS Code", sid="s7")
+    ok = [r for r in db.recent_actions(20) if r["tool"] == "app.abrir" and r["resultado"] == "ok"]
+    assert ok and ok[0]["origem"] == "assistente" and ok[0]["sessao"] == "s7" and ok[0]["nivel"] == 1
 
 
 def test_programa_ja_aberto_nao_abre_de_novo(mundo):

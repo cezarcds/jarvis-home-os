@@ -1,4 +1,5 @@
 import { API_URL } from "../lib/api.js";
+import { authFetch } from "../lib/session.js";
 
 export class ApiError extends Error {
   constructor(message, status = 0, code = "") {
@@ -11,7 +12,7 @@ export class ApiError extends Error {
 async function request(path, { method = "GET", token, body } = {}) {
   let res;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await authFetch(`${API_URL}${path}`, {
       method,
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),

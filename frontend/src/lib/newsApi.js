@@ -1,3 +1,4 @@
+import { authFetch } from "./session.js";
 // Cliente das notícias. Ajuste API_URL se o seu api.js usa outra variável.
 // Servido pelo backend (porta 8000): mesma origem, URL relativa. Em `npm run dev` (5173): aponta para o backend.
 const API_URL =
@@ -11,7 +12,7 @@ const NEWS_HINT =
 export const looksLikeNews = (text) => NEWS_HINT.test(text || "");
 
 export async function askJarvisWithNews(messages) {
-  const res = await fetch(`${API_URL}/v1/chat/completions`, {
+  const res = await authFetch(`${API_URL}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -33,13 +34,13 @@ export async function askJarvisWithNews(messages) {
 }
 
 export async function fetchTopics() {
-  const res = await fetch(`${API_URL}/news/topics`);
+  const res = await authFetch(`${API_URL}/news/topics`);
   if (!res.ok) throw new Error("topics");
   return (await res.json()).topics;
 }
 
 export async function fetchHeadlines(topic = "mercado", limit = 4) {
-  const res = await fetch(`${API_URL}/news/feed?topic=${encodeURIComponent(topic)}&limit=${limit}`);
+  const res = await authFetch(`${API_URL}/news/feed?topic=${encodeURIComponent(topic)}&limit=${limit}`);
   if (!res.ok) throw new Error(`feed ${res.status}`);
   return res.json();
 }

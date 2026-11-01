@@ -12,10 +12,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from connections import router as connections_router
-from connections.tools import run_tools_phase
+load_dotenv(override=True)  # ANTES de qualquer import local (connections, routines, news...) que leia o .env
 
-load_dotenv(override=True)  # ANTES de importar routines.*
+from connections import router as connections_router  # noqa: E402
+from connections.tools import run_tools_phase  # noqa: E402
 
 from grounding import fetch_context  # noqa: E402
 from media import diagnose, search_media_all  # noqa: E402
@@ -23,11 +23,16 @@ from scene_schema import extract_json, fallback_scene, sanitize_scene, visual_bl
 
 from routines.api import router as routines_router
 from voice.ws import router as voice_router  # noqa: E402
-from actions import config as actions_config, hud, winapi  # noqa: E402
+from actions import config as actions_config, hotkey, hud, winapi  # noqa: E402
 from actions.api import router as actions_router  # noqa: E402
 from sysinfo import router as sysinfo_router  # noqa: E402
 from news.router import router as news_router  # noqa: E402
 from news.scene import news_scene_for  # noqa: E402
+from actions.gate_api import router as gate_router  # noqa: E402
+from tarefas.agendador import Agendador  # noqa: E402
+from tarefas.api import router as tarefas_router  # noqa: E402
+from tarefas import pasta as tarefas_pasta  # noqa: E402
+from security.session import LocalGuardMiddleware, index_with_token, static_asset_checker  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +49,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 # A API nativa quer só "gemini-2.5-flash". Aceita também "gemini/gemini-2.5-flash"
 # (estilo litellm) e "models/...", que antes geravam a URL quebrada e o 404.
 GEMINI_MODEL = (
-    os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    os.getenv("GEMINI_MODEL", "gemini-3.6-flash")  # 3.8 não existe na lista oficial; confira o seu .env
     .strip()
     .removeprefix("models/")
     .removeprefix("gemini/")
@@ -80,14 +85,35 @@ def _preload_whisper() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app):
+async def lifespan(app):
     asyncio.create_task(asyncio.to_thread(_preload_whisper))
     if actions_config.open_hud_on_start():
         asyncio.create_task(asyncio.to_thread(hud.open_hud_if_needed))
+    hotkey.start()  # atalho global de parada (só Windows; Ctrl+Alt+J ou JARVIS_STOP_HOTKEY)
+    # Agendador de tarefas (Fase 2): dentro do backend. Não liga em testes (JARVIS_SCHEDULER=0).
+    agendador = None
+    if (os.getenv("JARVIS_SCHEDULER") or "1").strip() != "0":
+        try:
+            tarefas_pasta.importar()  # tarefas escritas à mão em ~/.jarvis/tarefas/*.json
+            agendador = app.state.agendador = Agendador()
+            agendador.iniciar()
+        except Exception:  # noqa: BLE001 - agendador com problema não derruba o HUD
+            log.exception("Não consegui iniciar o agendador de tarefas.")
     yield
+    if agendador is not None:
+        await agendador.encerrar()
+    hotkey.stop()
 
 
 app = FastAPI(title="OpenJarvis Home OS", lifespan=lifespan)
+
+# Guarda das rotas locais (Host, Origin e token de sessão). Registrado ANTES do CORS: o último
+# middleware adicionado é o mais externo, então o CORS responde aos preflights e coloca os
+# headers CORS também nas recusas 401/403 do guarda (senão o HUD veria só "erro de rede").
+app.add_middleware(
+    LocalGuardMiddleware,
+    public_static=static_asset_checker(hud.dist_dir, hud.dist_available),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,6 +133,8 @@ app.include_router(voice_router)
 app.include_router(actions_router)
 app.include_router(sysinfo_router)
 app.include_router(news_router)  # /news/topics, /news/feed, /news/search
+app.include_router(gate_router)
+app.include_router(tarefas_router)
 
 
 class Message(BaseModel):
@@ -461,9 +489,10 @@ Retorne SOMENTE JSON válido, sem markdown, neste formato:
              "edges":[{"from":"reator","to":"vapor","label":"calor","flow":true}]},
  "chart": {"type":"bar|line","title":"...","unit":"%","series":[{"label":"...","value":0}]},
  "geo": {"points":[{"id":"sp","label":"São Paulo","detail":"...","lat":-23.55,"lon":-46.63,"layer":"cidades"}],"links":[{"from":"sp","to":"rj","label":"rota"}]},
- "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye","media":"m1","show":["m1","m2","m3"],"reveal":["reator"],"focus":["reator"],"caption":"legenda opcional","callouts":[{"text":"chamada curta","side":"left|right","at":0.3,"kind":"fact|term|number","target":"m1"}],"impact":{"text":"NÃO","at":0.4,"tone":"neutral|alert|positive"},"marks":[{"type":"circle|underline|arrow|bracket|icon","target":"m1","from":"m1","to":"reator","targets":["m1","m2"],"icon":"bolt","label":"2 a 4 palavras","at":0.5}]}]
+ "board": {"title":"até 5 palavras","items":[{"icon":"atom","label":"até 3 palavras","detail":"até 6 palavras, opcional"}]},
+ "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye|board","media":"m1","show":["m1","m2","m3"],"reveal":["reator"],"focus":["reator"],"caption":"legenda opcional","callouts":[{"text":"chamada curta","side":"left|right","at":0.3,"kind":"fact|term|number","target":"m1"}],"impact":{"text":"NÃO","at":0.4,"tone":"neutral|alert|positive"},"marks":[{"type":"circle|underline|arrow|bracket|icon","target":"m1","from":"m1","to":"reator","targets":["m1","m2"],"icon":"bolt","label":"2 a 4 palavras","at":0.5}]}]
 }
-Todos os blocos (media, diagram, chart, geo) são OPCIONAIS: inclua só o que o assunto realmente pede, e use null ou omita o resto.
+Todos os blocos (media, diagram, chart, geo, board) são OPCIONAIS: inclua só o que o assunto realmente pede, e use null ou omita o resto.
 
 COMO ESCOLHER O QUE MOSTRAR
 - Objeto, lugar, animal, obra, fenômeno visível no mundo real: media com kind "image" (e, se o movimento ajuda, um segundo item kind "video"). A query deve achar fotos reais: "nuclear power plant cooling towers", não "como funciona usina". Use termos GENÉRICOS e comuns em bancos de fotos, sem números nem nomes próprios raros ("nuclear power plant", não "Angra 2 reactor building"); para lugares famosos, o nome da cidade ou do país basta ("Rio de Janeiro skyline").
@@ -479,16 +508,16 @@ COMO DIRIGIR (beats)
 - Mostre VÁRIAS coisas ao mesmo tempo sempre que o assunto permitir: o layout "split" põe a imagem/vídeo ao lado do diagrama, do gráfico ou do mapa. Use "split" como padrão depois do primeiro beat; use "diagram", "chart" ou "eye" sozinhos só quando o visual precisa de tela cheia.
 - O primeiro beat contextualiza: layout "media" (ou "title") com a imagem principal. Depois use "split" ou "diagram". O último beat fecha a ideia.
 - "reveal" lista os ids de nós/pontos que ENTRAM em cena naquele beat, na ordem em que são citados na fala. Todos os nós devem ser revelados em algum beat. "focus" lista 1 ou 2 ids que a fala está destacando agora.
-- layouts: title = título grande com a mídia ao fundo; media = mural com várias imagens e vídeos ao mesmo tempo; diagram = diagrama grande (a mídia vira uma coluna de miniaturas); split = mural à esquerda e, à direita, o diagrama (ou o gráfico, ou o mapa, se não houver diagrama); chart = gráfico grande; eye = mapa panorâmico (precisa de geo).
+- layouts: title = título grande com a mídia ao fundo; media = mural com várias imagens e vídeos ao mesmo tempo; diagram = diagrama grande (a mídia vira uma coluna de miniaturas); split = mural à esquerda e, à direita, o diagrama (ou o gráfico, ou o mapa, se não houver diagrama); chart = gráfico grande; eye = mapa panorâmico (precisa de geo); board = quadro negro desenhado à mão (precisa do bloco board).
 - Coordenadas do diagrama: x de 8 a 92 e y de 12 a 88, em porcentagem do palco. Processos fluem da esquerda para a direita (ou em círculo, se for ciclo). Dê pelo menos 18 pontos de distância entre nós para não se sobreporem.
 - icon (opcional) escolha entre: atom bolt flame drop gear fan cloud sun wind cell dna brain heart globe building factory chip database network lock rocket planet book scale coin chart person leaf thermo magnet wave flask pipe shield clock eye pin.
 - Rótulos curtos (até 3 palavras). detail com no máximo 8 palavras, e só quando acrescenta algo que a imagem não mostra.
 
 MÍNIMO VISUAL (vale para qualquer pergunta que não seja conversa solta)
 - media com 3 a 5 itens, que aparecem JUNTOS na tela, como um mural: uma imagem do assunto principal, outras de detalhes ou ângulos diferentes e, sempre que houver movimento ou processo visível, 1 ou 2 itens kind "video". Em cada beat, "show" lista quais mídias ficam visíveis (2 a 4 ids) e "media" aponta a destacada. Troque a destacada e o conjunto ao longo dos beats, em vez de repetir sempre o mesmo.
-- Além da mídia, inclua pelo menos UM bloco estruturado: diagram, chart ou geo.
+- Além da mídia, inclua pelo menos UM bloco estruturado: diagram, chart, geo ou board.
 - Se a pergunta cita lugares, países, cidades, usinas, rotas ou "onde", geo é OBRIGATÓRIO, com 3 a 10 pontos e pelo menos um beat com layout "eye". Use só coordenadas que você conhece com segurança; na dúvida, use a coordenada da cidade.
-- Todo bloco que você criar precisa de um beat que o mostre: diagram em "diagram" ou "split", chart em "chart", geo em "eye".
+- Todo bloco que você criar precisa de um beat que o mostre: diagram em "diagram" ou "split", chart em "chart", geo em "eye", board em "board".
 - 4 a 7 beats, e a cada beat algo muda na tela (outra mídia, novos ids em "reveal", outro layout). Nunca fique com a mesma tela parada por dois beats seguidos.
 
 CHAMADAS (texto curto na tela)
@@ -505,6 +534,12 @@ QUADRO DESENHADO (marcas feitas à mão)
 - Os alvos são ids de mídia, de nós do diagrama ou de pontos do mapa, e precisam estar visíveis naquele beat. "icon" só aceita estes nomes: bolt atom flame drop gear shield globe clock coin trend-up trend-down people house heart book lock warning check cross star search pin flag scale megaphone newspaper lightbulb rocket leaf sun cloud phone mail factory vote.
 - "label" é uma anotação de 2 a 4 palavras, como escrita à mão ao lado do traço. "at" diz quando o traço entra; espace as marcas em pelo menos 0.1.
 - Cada mídia pode ter um "tag" de 1 a 3 palavras (ex.: "FOTO 2019", "ARQUIVO") que aparece na vertical no canto do cartão.
+
+QUADRO NEGRO (layout "board")
+- Para explicar um processo, uma causa e efeito ou as etapas de algo de forma simples, o JARVIS pode DESENHAR num quadro negro, como nos vídeos de divulgação científica: ícones traçados a giz, setas entre eles e rótulos escritos à mão.
+- "board" é um bloco com "title" (até 5 palavras) e 3 a 5 "items" na ordem em que a fala os cita; cada item tem "icon", "label" (até 3 palavras) e, se acrescentar algo, "detail" (até 6 palavras). Ícones aceitos: atom bolt flame drop gear globe book people house coin trend-up warning lightbulb check search newspaper shield heart clock leaf sun cloud megaphone vote.
+- Use UM beat com layout "board" por cena (nunca mais de um), de preferência no meio, depois de a mídia contextualizar. Nesse beat o "say" pode ter até 3 frases curtas (até 260 caracteres) e deve citar os itens NA ORDEM do quadro, porque o desenho acompanha a fala. Nesse beat não use callouts, impact nem marks: o quadro ocupa a tela sozinho.
+- Prefira board para "como funciona", "por que acontece" e "quais as etapas". Para lugares use geo, para números use chart e, em conversa simples, não use board.
 
 CONTINUIDADE
 - Se houver "CENA ANTERIOR" e a nova pergunta for um aprofundamento (ex.: "e como ocorre a fissão?"), monte uma cena NOVA focada no detalhe pedido, sem repetir o que já foi mostrado. Se o assunto mudou, ignore a cena anterior.
@@ -660,5 +695,11 @@ async def media_diagnose(q: str = "nuclear power plant"):
 # HUD compilado (npm run build): o backend serve na mesma porta. Precisa ser a última rota.
 if hud.dist_available():
     from fastapi.staticfiles import StaticFiles
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    async def hud_index():
+        # Entrega o HUD com o token de sessão embutido (só passa quem cruzou o guarda).
+        return index_with_token(hud.dist_dir())
 
     app.mount("/", StaticFiles(directory=hud.dist_dir(), html=True), name="hud")

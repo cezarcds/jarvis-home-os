@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 import llm
+from actions import gate
 from .google_auth import GoogleAuthError
 from .models import Fala, Routine, Step, Tela
 from .tools import REGISTRY, ToolError, coerce_params
@@ -20,26 +21,24 @@ PERSONA = (
 )
 
 
-async def _run_step(step: Step) -> Dict[str, Any]:
+async def _run_step(step: Step, ctx: gate.Contexto) -> Dict[str, Any]:
     t = REGISTRY.get(step.ferramenta)
-    if not t:
-        return {"id": step.id, "ok": False, "titulo": step.ferramenta, "erro": "Ferramenta desconhecida"}
-    ok, motivo = t.disponivel()
-    if not ok:
-        return {"id": step.id, "ok": False, "titulo": t.rotulo.capitalize(), "erro": motivo}
-    if t.risco != "leitura":  # trava de segurança: ações ainda não são executadas
-        return {"id": step.id, "ok": False, "titulo": t.rotulo.capitalize(), "erro": "Ações ainda não habilitadas"}
+    titulo = t.rotulo.capitalize() if t else step.ferramenta
     try:
-        params = coerce_params(t, step.params)
-        res = await asyncio.wait_for(t.fn(**params), timeout=t.timeout)
+        # Toda ferramenta passa pelo gate; rotinas só podem nível 0 (max_nivel do contexto).
+        res = await gate.executar(step.ferramenta, step.params, ctx)
         return {"id": step.id, "ok": True, **res}
-    except (ToolError, GoogleAuthError) as exc:
-        return {"id": step.id, "ok": False, "titulo": t.rotulo.capitalize(), "erro": str(exc)}
+    except gate.ExecucaoCancelada:
+        return {"id": step.id, "ok": False, "titulo": titulo, "erro": "Interrompido"}
+    except gate.ConfirmacaoPendente:  # não acontece com max_nivel=0; falha fechada se acontecer
+        return {"id": step.id, "ok": False, "titulo": titulo, "erro": "Exige confirmação"}
+    except (gate.AcaoNegada, ToolError, GoogleAuthError) as exc:
+        return {"id": step.id, "ok": False, "titulo": titulo, "erro": str(exc)}
     except asyncio.TimeoutError:
-        return {"id": step.id, "ok": False, "titulo": t.rotulo.capitalize(), "erro": "Tempo esgotado"}
+        return {"id": step.id, "ok": False, "titulo": titulo, "erro": "Tempo esgotado"}
     except Exception:  # noqa: BLE001
         log.exception("Passo %s (%s) falhou", step.id, step.ferramenta)
-        return {"id": step.id, "ok": False, "titulo": t.rotulo.capitalize(),
+        return {"id": step.id, "ok": False, "titulo": titulo,
                 "erro": "Falha inesperada (veja o log do backend)"}
 
 
@@ -91,11 +90,14 @@ async def _fala_resumo(routine: Routine, results: List[Dict[str, Any]]) -> str:
     return texto
 
 
-async def run_routine(routine: Routine) -> Dict[str, Any]:
+async def run_routine(routine: Routine, sid: str = "") -> Dict[str, Any]:
     t0 = time.time()
     if routine.tipo != "leitura":
         raise ToolError("Rotinas de ação ainda não estão habilitadas")
-    outs = await asyncio.gather(*[_run_step(s) for s in routine.passos])
+    # Um contexto para a rotina toda: a parada vale para todos os passos. Os passos ainda rodam em
+    # paralelo (execução sequencial é Fase 2); cada um checa o cancelamento antes de começar.
+    ctx = gate.Contexto(sid=sid, origem="rotina", max_nivel=0)
+    outs = await asyncio.gather(*[_run_step(s, ctx) for s in routine.passos])
     results = {o["id"]: o for o in outs}
     ordenados = [results[s.id] for s in routine.passos]
 

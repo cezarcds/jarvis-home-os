@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from actions.config import voice_enabled
 from connections.config import allowed_origins, backend_url
+from security import session as security_session
 
 from . import stt
 from .session import VoiceSession
@@ -25,6 +26,25 @@ def _origins() -> set:
     base = backend_url()
     extra = {base, base.replace("localhost", "127.0.0.1")}
     return {o.rstrip("/") for o in allowed_origins()} | extra
+
+
+AUTH_TIMEOUT_S = 5.0
+
+
+async def _autenticar(ws: WebSocket) -> bool:
+    """O navegador não manda header customizado no WebSocket: o token vem na 1ª mensagem
+    {"type": "auth", "token": "..."}. Sem ela (ou com token errado) a conexão é fechada com 4401."""
+    try:
+        msg = await asyncio.wait_for(ws.receive_json(), timeout=AUTH_TIMEOUT_S)
+    except (asyncio.TimeoutError, WebSocketDisconnect, ValueError, KeyError, RuntimeError):
+        msg = None
+    ok = isinstance(msg, dict) and msg.get("type") == "auth" and security_session.token_ok(msg.get("token"))
+    if not ok:
+        try:
+            await ws.close(code=4401)
+        except RuntimeError:  # já fechou
+            pass
+    return ok
 
 
 @router.get("/status")
@@ -49,6 +69,8 @@ async def voice_ws(ws: WebSocket):
         await ws.close(code=4403)
         return
     await ws.accept()
+    if not await _autenticar(ws):
+        return
 
     ok, reason = stt.available()
     if not voice_enabled() or not ok:

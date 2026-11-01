@@ -99,7 +99,7 @@ def _resumo_llm(itens) -> str:
     [Param("max", "int", 5, "Máximo de emails", 1, 15),
      Param("dias", "int", 7, "Janela em dias", 1, 30),
      Param("so_importantes", "bool", False, "Só emails marcados como importantes pelo Gmail")],
-    check=check_google,
+    check=check_google, le_dado_externo=True,
 )
 async def gmail_para_responder(max=5, dias=7, so_importantes=False):
     data = await asyncio.to_thread(_para_responder, int(dias), int(max), bool(so_importantes))
@@ -118,7 +118,7 @@ async def gmail_para_responder(max=5, dias=7, so_importantes=False):
     "gmail.nao_lidos", "emails não lidos",
     "Quantidade de emails não lidos na caixa de entrada e os mais recentes (sem promoções)",
     [Param("max", "int", 5, "Máximo de emails listados", 1, 15)],
-    check=check_google,
+    check=check_google, le_dado_externo=True,
 )
 async def gmail_nao_lidos(max=5):
     data = await asyncio.to_thread(_nao_lidos, int(max))

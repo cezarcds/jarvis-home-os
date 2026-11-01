@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "projetos": {
+    "projeto-x": "C:/projetos/projeto-x"
+  },
+  "comandos": {
+    "gerar_videos": {
+      "exec": ["python", "gerar_videos.py", "--quantidade", "{quantidade}"],
+      "projeto": "projeto-x",
+      "params": {"quantidade": {"min": 1, "max": 20, "default": 5}},
+      "timeout_s": 3600
+    }
+  }
+}

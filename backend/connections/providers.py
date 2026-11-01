@@ -30,7 +30,7 @@ GOOGLE = ProviderSpec(
     auth_url="https://accounts.google.com/o/oauth2/v2/auth",
     token_url="https://oauth2.googleapis.com/token",
     revoke_url="https://oauth2.googleapis.com/revoke",
-    # Somente leitura nesta fase.
+    # Base somente leitura; escritas são opcionais e ligadas à parte.
     base_scopes=(
         "openid",
         "email",
@@ -42,6 +42,8 @@ GOOGLE = ProviderSpec(
         G + "documents.readonly": "Google Docs (leitura)",
         G + "spreadsheets.readonly": "Google Sheets (leitura)",
         G + "youtube.readonly": "YouTube (leitura)",
+        G + "youtube.upload": "YouTube (enviar vídeos; o Jarvis só envia como privado)",
+        G + "gmail.compose": "Gmail (criar rascunhos; o Google não separa de enviar)",
     },
     extra_auth_params={
         "access_type": "offline",      # devolve refresh_token

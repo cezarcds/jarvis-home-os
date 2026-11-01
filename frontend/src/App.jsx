@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import CoreRings from "./components/CoreRings.jsx";
 import CoreOrb from "./core/CoreOrb.jsx";
 import { useVoiceLevel } from "./core/useVoiceLevel.js";
-import { LeftPanels, RightConsole } from "./components/SidePanels.jsx";
+import { LeftPanels } from "./components/SidePanels.jsx";
 import NavRail from "./components/NavRail.jsx";
 import { useSpeech } from "./hooks/useSpeech.js";
 import { handsFreeSupported, useHandsFree } from "./hooks/useHandsFree.js";
 import { isLocalCommand } from "./lib/localIntents.js";
-import { askAssistant, askScene } from "./lib/api.js";
+import { askAssistant, askScene, confirmarAcao, negarAcao, pararTudo } from "./lib/api.js";
+import ConfirmCard from "./components/ConfirmCard.jsx";
+import TarefasPanel from "./components/TarefasPanel.jsx";
 import SceneStage from "./stage/SceneStage.jsx";
 import { useScenePlayer } from "./stage/useScenePlayer.js";
 import { useMediaResolver } from "./stage/useMediaResolver.js";
@@ -65,6 +67,7 @@ function summarize(scene) {
   const labels = [
     ...(scene.diagram?.nodes || []).map((n) => n.label),
     ...(scene.geo?.points || []).map((p) => p.label),
+    ...(scene.board?.items || []).map((i) => i.label),
   ];
   return { title: scene.title, labels };
 }
@@ -77,12 +80,8 @@ export default function App() {
   const [reply, setReply] = useState(
     "Sistema em espera. Toque no núcleo para falar."
   );
-  const [logs, setLogs] = useState([
-    { time: now(), msg: "Sistema inicializado.", level: "info" },
-  ]);
   const [briefing, setBriefing] = useState(null);
   const [typed, setTyped] = useState("");
-  const [recentMedia, setRecentMedia] = useState([]); // miniaturas das cenas anteriores
 
   // Voz sem clique ("Jarvis, ...") e visão de tela
   const [handsFreeOn, setHandsFreeOn] = useState(
@@ -97,22 +96,38 @@ export default function App() {
   const [sceneLoading, setSceneLoading] = useState(false);
   const [visualMode, setVisualMode] = useState(false);
   const [dim, setDim] = useState(false);
+  // Durante a cena o núcleo 3D é desmontado (depois do fade): libera a GPU para vídeos e mural.
+  const [coreOn, setCoreOn] = useState(true);
+  useEffect(() => {
+    if (!visualMode) {
+      setCoreOn(true);
+      return undefined;
+    }
+    const id = setTimeout(() => setCoreOn(false), 1300);
+    return () => clearTimeout(id);
+  }, [visualMode]);
 
   const history = useRef([]);
   const sessionId = useRef(newSessionId());
   const speechRef = useRef(null);
+  const [pendente, setPendente] = useState(null); // ação aguardando confirmação (gate)
+  const [gateBusy, setGateBusy] = useState(false);
+  const [tarefasAberto, setTarefasAberto] = useState(false);
   const sceneRef = useRef("ACTIVE");
   const previousScene = useRef(null);
   // Refs lidas dentro de handleTranscript, que não deve ficar presa a valores antigos.
   const visualActiveRef = useRef(false);
   const closeVisualRef = useRef(null);
   visualActiveRef.current = visualMode && Boolean(visualScene);
+  const visualModeRef = useRef(false);
+  visualModeRef.current = visualMode;
 
+  // Os eventos já não aparecem na tela inicial; ficam só no console do navegador (F12).
   const log = useCallback((msg, level = "info") => {
-    setLogs((l) => [...l.slice(-100), { time: now(), msg, level }]);
+    (level === "warn" ? console.warn : console.info)(`[JARVIS ${now()}] ${msg}`);
   }, []);
 
-  const { scene, wake, goTo } = useSceneManager({
+  const { scene, wake, goTo: goToRaw } = useSceneManager({
     canIdle: status === "STANDBY" && !visualMode,
     idleSeconds: IDLE_SECONDS,
     briefingSeconds: BRIEFING_SECONDS,
@@ -127,6 +142,15 @@ export default function App() {
     },
   });
   sceneRef.current = scene;
+
+  // Uma coisa de cada vez: abrir um painel (briefing/admin) fecha antes a cena visual.
+  const goTo = useCallback(
+    (next) => {
+      if (next !== "ACTIVE" && next !== "IDLE" && visualModeRef.current) closeVisualRef.current?.();
+      goToRaw(next);
+    },
+    [goToRaw]
+  );
 
   const handleError = useCallback(
     (msg) => {
@@ -157,6 +181,8 @@ export default function App() {
           content: r.text || "(rotina exibida na tela)",
         });
         if (r.text) setReply(r.text);
+        setPendente(r.kind === "confirmacao" ? r.pendente : null);
+        if (r.kind === "parada") speechRef.current.cancelSpeech?.();
         if (r.acao) log(`Ação: ${r.acao.tipo}${r.acao.app ? ` (${r.acao.app})` : ""}`);
         if (r.vision) {
           setVision(r.vision);
@@ -191,6 +217,48 @@ export default function App() {
     },
     [log, handleError, goTo]
   );
+
+  // ---------- Gate: confirmar, negar e parar (Fase 1) ----------
+  const resolverPendente = useCallback(
+    async (confirmar) => {
+      if (!pendente || gateBusy) return;
+      setGateBusy(true);
+      try {
+        if (confirmar) {
+          const r = await confirmarAcao(pendente.id);
+          log(`Ação confirmada: ${pendente.ferramenta}`);
+          if (r?.text) {
+            setReply(r.text);
+            speechRef.current.speak(r.text);
+          }
+        } else {
+          await negarAcao(pendente.id);
+          log(`Ação negada: ${pendente.ferramenta}`);
+          setReply("Certo, não executei.");
+        }
+      } catch (err) {
+        log(err.message, "warn");
+        setReply(err.message);
+      } finally {
+        setPendente(null);
+        setGateBusy(false);
+      }
+    },
+    [pendente, gateBusy, log]
+  );
+
+  const parar = useCallback(async () => {
+    speechRef.current.cancelSpeech?.();
+    setPendente(null);
+    try {
+      await pararTudo();
+      log("Parada acionada.");
+      setReply("Parei tudo.");
+    } catch (err) {
+      log(`Falha ao parar: ${err.message}`, "warn");
+    }
+    setStatus("STANDBY");
+  }, [log]);
 
   // ---------- Motor de cenas (explicações visuais) ----------
   const sendVisual = useCallback(
@@ -340,25 +408,6 @@ export default function App() {
 
   const media = useMediaResolver(visualScene);
 
-  // Guarda as imagens e vídeos que apareceram nas cenas, para o painel MÍDIA RECENTE.
-  useEffect(() => {
-    if (!visualScene) return;
-    const ready = visualScene.media.map((m) => media.entries[m.id]).filter((e) => e?.status === "ready" && e.item);
-    if (!ready.length) return;
-    setRecentMedia((prev) => {
-      const seen = new Set(prev.map((p) => p.key));
-      const add = ready
-        .map((e) => ({
-          key: e.item.url || e.item.src || e.item.embed,
-          thumb: e.item.kind === "image" ? e.item.url : e.item.poster || "",
-          kind: e.item.kind,
-          title: e.item.title || "",
-          page: e.item.page || e.item.link || null,
-        }))
-        .filter((x) => x.key && x.thumb && !seen.has(x.key));
-      return add.length ? [...add, ...prev].slice(0, 8) : prev;
-    });
-  }, [visualScene, media.entries]);
   const player = useScenePlayer({
     scene: visualScene,
     ready: media.ready,
@@ -431,7 +480,7 @@ export default function App() {
   };
 
   const closeScene = () => {
-    speech.stopSpeaking?.();
+    speech.cancelSpeech?.();
     goTo("ACTIVE");
     setStatus((s) => (s === "SPEAKING" ? "STANDBY" : s));
   };
@@ -473,6 +522,20 @@ export default function App() {
             <span>JARVIS <span className="opacity-50">//</span> <span className="opacity-70">HOME OS</span></span>
           </div>
           <div className="flex items-center gap-6">
+            <button
+              onClick={parar}
+              className="tracking-[0.3em] text-hud-amber opacity-80 hover:opacity-100"
+              title='Parar tudo (também: diga "para tudo" ou use Ctrl+Alt+J)'
+            >
+              ■ PARAR
+            </button>
+            <button
+              onClick={() => setTarefasAberto(true)}
+              className="tracking-[0.3em] opacity-70 hover:opacity-100"
+              title="Tarefas do agente: agendamento, histórico e simulação"
+            >
+              TAREFAS
+            </button>
             {vision.active && (
               <span className="hud-chip text-hud-amber" title="O Jarvis está analisando a sua tela. Diga: para de olhar a tela.">
                 ◉ TELA
@@ -510,12 +573,11 @@ export default function App() {
               </div>
 
               <div className="hud-core flex-1 min-w-0 flex items-center justify-center">
-                <CoreOrb status={status} onClick={onCoreClick} levelRef={voiceLevel} />
+                {coreOn && <CoreOrb status={status} onClick={onCoreClick} levelRef={voiceLevel} />}
               </div>
 
-              <div className="hud-away hud-away-right" style={{ "--i": 1 }}>
-                <RightConsole logs={logs} recentMedia={recentMedia} />
-              </div>
+              {/* espaçador: mantém o núcleo centralizado agora que não há painel à direita */}
+              <div className="w-64 shrink-0 hidden lg:block" aria-hidden="true" />
             </div>
 
             <div className="hud-away hud-away-bottom flex items-end gap-4" style={{ "--i": 2 }}>
@@ -564,6 +626,19 @@ export default function App() {
             />
           )}
         </main>
+
+        {tarefasAberto && <TarefasPanel onClose={() => setTarefasAberto(false)} />}
+
+        {pendente && (
+          <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4">
+            <ConfirmCard
+              pendente={pendente}
+              busy={gateBusy}
+              onConfirm={() => resolverPendente(true)}
+              onDeny={() => resolverPendente(false)}
+            />
+          </div>
+        )}
 
         {visualMode && (
           <div className="mic-dock flex items-center justify-center">

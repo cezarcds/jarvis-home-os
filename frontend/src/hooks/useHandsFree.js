@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_URL } from "../lib/api.js";
+import { getToken, resetToken } from "../lib/session.js";
 
 // Captura o microfone, converte para PCM16 16 kHz e manda ao backend, que detecta "Jarvis"
 // e transcreve com Whisper. O código roda num AudioWorklet (fora da thread da interface).
@@ -114,14 +115,26 @@ export function useHandsFree({ enabled, muted, onWake, onSleep, onTranscript, on
       resume();
     };
 
-    const connect = () => {
+    const connect = async () => {
       if (stopped || fatal) return;
       setState("connecting");
+      let token;
+      try {
+        token = await getToken();
+      } catch {
+        if (stopped) return;
+        retryTimer = setTimeout(connect, retry);
+        retry = Math.min(retry * 2, 10000);
+        return;
+      }
+      if (stopped || fatal) return;
       ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
       ws.onopen = () => {
         retry = 1000;
+        // O token precisa ser a PRIMEIRA mensagem; o backend fecha com 4401 se não for.
+        ws.send(JSON.stringify({ type: "auth", token }));
         if (mutedRef.current) ws.send(JSON.stringify({ type: "mute", value: true }));
       };
       ws.onmessage = (ev) => {
@@ -144,6 +157,7 @@ export function useHandsFree({ enabled, muted, onWake, onSleep, onTranscript, on
       };
       ws.onclose = (ev) => {
         if (stopped || fatal) return;
+        if (ev.code === 4401) resetToken(); // token trocado: busca de novo na próxima tentativa
         if (ev.code === 4403) {
           fatal = true;
           setState("error");

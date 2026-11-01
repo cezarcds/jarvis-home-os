@@ -18,3 +18,6 @@ mss>=9.0
 pillow>=10.4
 numpy>=1.26
 psutil>=5.9
+
+# Fase 3: navegador próprio do Jarvis (depois: playwright install chromium)
+playwright>=1.45

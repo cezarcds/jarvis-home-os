@@ -46,8 +46,8 @@ body {
   --away-ms: 950ms;       /* painéis saindo para os lados */
   --away-stagger: 70ms;   /* intervalo entre um painel e o seguinte */
   --core-ms: 1150ms;      /* núcleo recuando */
-  --core-scale: 0.5;      /* tamanho do núcleo durante a cena */
-  --core-opacity: 0.5;
+  --core-scale: 0.4;      /* para onde o núcleo encolhe ao sair de cena */
+  --core-opacity: 0;      /* 0 = some de vez (sem núcleo "vazando" atrás da cena). 0.1 deixa um vulto. */
   --core-lift: -6%;
 }
 .hud-ambient {
@@ -78,8 +78,16 @@ body {
 .hud[data-phase="scene"] .hud-away-left { transform: translateX(-150%); opacity: 0; pointer-events: none; }
 .hud[data-phase="scene"] .hud-away-right { transform: translateX(150%); opacity: 0; pointer-events: none; }
 .hud[data-phase="scene"] .hud-away-bottom { transform: translateY(170%); opacity: 0; pointer-events: none; }
-.hud-core { transition: transform var(--core-ms) cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.9s ease, filter 0.9s ease; }
-.hud[data-phase="scene"] .hud-core { transform: translateY(var(--core-lift)) scale(var(--core-scale)); opacity: var(--core-opacity); filter: blur(0.8px); pointer-events: none; }
+.hud-core { transition: transform var(--core-ms) cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.9s ease, filter 0.9s ease, visibility 0s linear 0s; }
+.hud[data-phase="scene"] .hud-core {
+  transform: translateY(var(--core-lift)) scale(var(--core-scale));
+  opacity: var(--core-opacity);
+  filter: blur(2px);
+  pointer-events: none;
+  /* some do desenho (e da composição da GPU) assim que o fade termina */
+  visibility: hidden;
+  transition: transform var(--core-ms) cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.9s ease, filter 0.9s ease, visibility 0s linear 0.95s;
+}
 
 .rail { display: flex; flex-direction: column; gap: 0.35rem; width: 4.6rem; padding: 0.5rem 0.4rem; margin: 0.5rem 0 1rem 0.9rem; border-radius: 16px; border: 1px solid rgba(147, 197, 253, 0.12); background: linear-gradient(180deg, rgba(20, 44, 72, 0.4), rgba(6, 16, 30, 0.5)); backdrop-filter: blur(16px); }
 .rail-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 0.6rem 0.2rem; border-radius: 12px; border: 1px solid transparent; background: none; color: rgba(165, 243, 252, 0.6); font: inherit; font-size: 0.58rem; letter-spacing: 0.08em; cursor: pointer; transition: background 0.25s, color 0.25s, border-color 0.25s; }
