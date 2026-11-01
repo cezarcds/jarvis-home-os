@@ -15,8 +15,8 @@ export const AREAS = {
 export const WALL = {
   max: 4,            // cartões ao mesmo tempo
   gap: 1.6,          // vão entre cartões (%)
-  tilt: 1.1,         // inclinação máxima dos cartões, em graus
-  tiltStrip: 0.5,    // inclinação na coluna de miniaturas
+  tilt: 2.0,         // inclinação máxima dos cartões, em graus (cartões "colados com fita")
+  tiltStrip: 0.9,    // inclinação na coluna de miniaturas
   delayStepMs: 90,   // intervalo entre a entrada de um cartão e o seguinte
   floatBaseS: 6,     // duração do balanço (s); cada cartão varia um pouco
   floatStepS: 1.7,
@@ -31,4 +31,30 @@ export const CALLOUT = {
   slotsY: [24, 46, 68],  // alturas (%) em que as chamadas de um mesmo lado se empilham
   leaveMs: 620,          // quanto tempo as chamadas do trecho anterior levam para sair
   defaultAnchor: { x: 50, y: 46 },
+};
+
+// Quadro desenhado: traços e ícones que se desenham sobre a cena
+export const MARKS = {
+  wobble: 2.2,        // tremor do traço (px)
+  arrowHead: 16,      // tamanho da ponta da seta (px)
+  iconSize: 58,       // tamanho dos ícones (px)
+  nodeW: 118,         // área aproximada de um nó do diagrama (px), para circular/sublinhar
+  nodeH: 50,
+  drawMs: 900,        // quanto tempo um traço leva para ser desenhado
+  stagger: 260,       // intervalo entre os traços de uma mesma marca (ms)
+  leaveMs: 650,
+  colors: {           // cor por tipo de marca (giz e marcador)
+    circle: "#fbbf24", underline: "#f5f1e4", arrow: "#8be9fd", bracket: "#f5f1e4", icon: "#8be9fd",
+  },
+};
+
+// Palavra-impacto (partículas)
+export const IMPACT = {
+  maxParticles: 3200,
+  formS: 1.15,        // tempo de formação (s)
+  holdMs: 3400,       // quanto tempo a palavra fica inteira antes de se desfazer
+  maxWidth: 0.7,      // fração da largura do palco que a palavra pode ocupar
+  maxHeight: 0.34,
+  font: '"Permanent Marker", "Segoe Print", Impact, sans-serif',
+  colors: { neutral: "#c9f6ff", alert: "#ffc94d", positive: "#7ff0c2" },
 };

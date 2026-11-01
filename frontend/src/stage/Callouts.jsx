@@ -1,29 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import { LANE, anchorFor, placeCallouts, visibleCallouts } from "./calloutsLogic.js";
 import { CALLOUT } from "./tuning.js";
-
-const LEAVE_MS = CALLOUT.leaveMs;
-
-/** Guarda por um instante as chamadas do beat anterior, para elas saírem em vez de sumirem de repente. */
-function useLeaving(key, items) {
-  const [leaving, setLeaving] = useState(null);
-  const prev = useRef({ key, items });
-  useEffect(() => {
-    if (prev.current.key !== key) {
-      const old = prev.current;
-      prev.current = { key, items };
-      if (old.items.length) {
-        setLeaving(old);
-        const t = setTimeout(() => setLeaving(null), LEAVE_MS);
-        return () => clearTimeout(t);
-      }
-      return undefined;
-    }
-    prev.current = { key, items };
-    return undefined;
-  }, [key, items]);
-  return leaving;
-}
+import { useLeaving } from "./useLeaving.js";
 
 function Group({ items, ctx, leaving }) {
   return (
@@ -59,7 +37,7 @@ function Group({ items, ctx, leaving }) {
 export default function Callouts({ beatKey, callouts, progress, finished, ctx }) {
   const placed = placeCallouts(callouts);
   const shown = visibleCallouts(placed, progress, finished);
-  const leaving = useLeaving(beatKey, shown);
+  const leaving = useLeaving(beatKey, shown, CALLOUT.leaveMs);
   return (
     <div className="co-layer" aria-hidden="true">
       {leaving && <Group key={`out-${leaving.key}`} items={leaving.items} ctx={ctx} leaving />}

@@ -27,7 +27,6 @@ ICONS = {
 }
 CHART_TYPES = {"bar", "line"}
 MEDIA_KINDS = {"image", "video"}
-NEWS_KIND = "news"    # cartão de notícia pronto (só o módulo news cria; o diretor continua pedindo image/video)
 
 MAX_BEATS = 8
 MAX_NODES = 12
@@ -38,6 +37,16 @@ MAX_CALLOUTS = 3      # chamadas de texto por beat
 CALLOUT_MAX_WORDS = 6
 CALLOUT_SIDES = {"left", "right"}
 CALLOUT_KINDS = {"fact", "term", "number"}
+MAX_MARKS = 3         # marcas desenhadas (círculo, seta...) por beat
+MARK_GAP = 0.1
+MARK_TYPES = {"circle", "underline", "arrow", "bracket", "icon"}
+# Ícones de traço fino que o quadro sabe desenhar. Precisa ser igual às chaves de frontend/src/stage/icons.js
+# (há um teste que confere).
+MARK_ICONS = (
+    "bolt atom flame drop gear shield globe clock coin trend-up trend-down people house heart book lock warning "
+    "check cross star search pin flag scale megaphone newspaper lightbulb rocket leaf sun cloud phone mail factory vote"
+).split()
+IMPACT_TONES = {"neutral", "alert", "positive"}
 CALLOUT_GAP = 0.14    # distância mínima entre chamadas do mesmo beat (fração da fala)
 MAX_POINTS = 14
 MAX_SERIES = 10
@@ -263,51 +272,26 @@ def _clean_geo(raw: Any) -> dict | None:
     return {"points": points, "links": links}
 
 
-def _http_url(value: Any, limit: int) -> str:
-    """Só aceita http/https (nada de javascript: ou data:), pois a URL vira link e imagem na tela."""
-    url = _s(value, limit)
-    return url if url.lower().startswith(("http://", "https://")) else ""
-
-
-def _clean_news_item(raw: Any) -> dict | None:
-    """Cartão de notícia pronto (vem do módulo de notícias, nunca do diretor): título, veículo, link e capa."""
-    if not isinstance(raw, dict):
-        return None
-    title, url = _s(raw.get("title"), 200), _http_url(raw.get("url"), 600)
-    if not title or not url:
-        return None
-    return {
-        "title": title,
-        "outlet": _s(raw.get("outlet"), 60),
-        "url": url,
-        "image": _http_url(raw.get("image"), 800) or None,
-        "published": _s(raw.get("published"), 40) or None,
-    }
-
-
 def _clean_media(raw: Any) -> list[dict]:
     out, used = [], set()
     for idx, rm in enumerate((raw if isinstance(raw, list) else [])[:MAX_MEDIA]):
         if not isinstance(rm, dict):
             continue
-        kind = _s(rm.get("kind"), 8).lower()
-        news = _clean_news_item(rm.get("news")) if kind == NEWS_KIND else None
-        query = _s(rm.get("query"), 80) or (news["title"][:80] if news else "")
+        query = _s(rm.get("query"), 80)
         if len(query) < 3:
             continue
         mid = _slug(rm.get("id"), f"m{idx + 1}")
         while mid in used:
             mid += "_"
         used.add(mid)
-        item = {
+        kind = _s(rm.get("kind"), 8).lower()
+        out.append({
             "id": mid,
-            "kind": NEWS_KIND if news else (kind if kind in MEDIA_KINDS else "image"),
+            "kind": kind if kind in MEDIA_KINDS else "image",
             "query": query,
             "caption": _s(rm.get("caption"), 90),
-        }
-        if news:
-            item["news"] = news
-        out.append(item)
+            "tag": _s(rm.get("tag"), 24).upper(),   # rótulo vertical no canto do cartão (ex.: "FOTO 2019")
+        })
     return out
 
 
@@ -369,6 +353,78 @@ def _clean_callouts(raw: Any, say: str, targets: set) -> list[dict]:
     return _arrange_callouts(out)
 
 
+def _clean_impact(raw: Any) -> dict | None:
+    """Palavra-impacto: 1 ou 2 palavras que se formam no centro da tela quando a fala as cita."""
+    if isinstance(raw, str):
+        raw = {"text": raw}
+    if not isinstance(raw, dict):
+        return None
+    text = " ".join(_s(raw.get("text"), 40).split()[:2]).strip(" .,;:!?-")
+    if len(text) > 18 and " " in text:
+        text = text.split()[0]
+    if not 2 <= len(text) <= 18:
+        return None
+    tone = _s(raw.get("tone"), 10).lower()
+    return {"text": text.upper(), "at": round(_num(raw.get("at"), 0.0, 0.85, 0.3), 2),
+            "tone": tone if tone in IMPACT_TONES else "neutral"}
+
+
+def _clean_marks(raw: Any, targets: set) -> list[dict]:
+    """Marcas "desenhadas" (círculo, sublinhado, seta, colchete, ícone) apontando para mídias, nós ou pontos."""
+    out: list[dict] = []
+    for rm in (raw if isinstance(raw, list) else [])[: MAX_MARKS + 2]:
+        if not isinstance(rm, dict):
+            continue
+        kind = _s(rm.get("type"), 10).lower()
+        if kind not in MARK_TYPES:
+            continue
+        mark = {
+            "type": kind, "target": None, "from": None, "targets": [], "icon": None,
+            "label": " ".join(_s(rm.get("label"), 40).split()[:4]).strip(" .,;:!?-"),
+            "at": _num(rm.get("at"), 0.0, 0.92, None),
+        }
+        if kind in ("circle", "underline", "icon"):
+            target = _slug(rm.get("target"), "")
+            if target not in targets:
+                continue
+            mark["target"] = target
+            if kind == "icon":
+                icon = _s(rm.get("icon"), 16).lower()
+                if icon not in MARK_ICONS:
+                    continue
+                mark["icon"] = icon
+        elif kind == "arrow":
+            to = _slug(rm.get("to") or rm.get("target"), "")
+            if to not in targets:
+                continue
+            origin = _slug(rm.get("from"), "")
+            mark["target"] = to
+            mark["from"] = origin if origin in targets and origin != to else None
+        else:  # bracket
+            ids = rm.get("targets") if isinstance(rm.get("targets"), list) else []
+            ids = list(dict.fromkeys(t for t in (_slug(x, "") for x in ids) if t in targets))[:4]
+            if len(ids) < 2:
+                continue
+            mark["targets"] = ids
+        out.append(mark)
+        if len(out) == MAX_MARKS:
+            break
+    # pontos de entrada em ordem e espaçados, como nas chamadas
+    n = len(out)
+    for k, m in enumerate(out):
+        if m["at"] is None:
+            m["at"] = 0.1 + 0.7 * k / max(1, n)
+    out.sort(key=lambda m: m["at"])
+    for i in range(1, n):
+        out[i]["at"] = max(out[i]["at"], out[i - 1]["at"] + MARK_GAP)
+    if n and out[-1]["at"] > 0.92:
+        for k, m in enumerate(out):
+            m["at"] = 0.06 + 0.8 * k / max(1, n)
+    for m in out:
+        m["at"] = round(m["at"], 2)
+    return out
+
+
 def _auto_callouts(reveal: list[str], labels: dict) -> list[dict]:
     """Plano B quando o diretor esquece as chamadas: o rótulo do que entra em cena naquele beat."""
     items = []
@@ -388,6 +444,7 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
     targets = media_ids | node_ids | point_ids
 
     beats = []
+    prev_impact = False
     for rb in (raw if isinstance(raw, list) else [])[:MAX_BEATS]:
         if not isinstance(rb, dict):
             continue
@@ -425,6 +482,9 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
             show = [featured] + show[: MAX_SHOW - 1]
         reveal = pick("reveal", node_ids | point_ids)
         callouts = _clean_callouts(rb.get("callouts"), say, targets) or _auto_callouts(reveal, labels)
+        # Palavra-impacto é tempero: nunca em dois beats seguidos.
+        impact = None if prev_impact else _clean_impact(rb.get("impact"))
+        prev_impact = impact is not None
         beats.append({
             "say": say,
             "layout": layout,
@@ -434,6 +494,8 @@ def _clean_beats(raw: Any, diagram, chart, geo, media) -> list[dict]:
             "reveal": reveal,
             "focus": pick("focus", node_ids | point_ids),
             "callouts": callouts,
+            "impact": impact,
+            "marks": _clean_marks(rb.get("marks"), targets),
         })
     return beats
 
@@ -529,7 +591,7 @@ def fallback_scene(answer: str, title: str = "Explicação") -> dict:
     if cur:
         chunks.append(cur)
     beats = [
-        {"say": c, "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": []}
+        {"say": c, "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": [], "impact": None, "marks": []}
         for c in chunks[:MAX_BEATS]
-    ] or [{"say": answer.strip()[:420] or "Sem resposta.", "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": []}]
+    ] or [{"say": answer.strip()[:420] or "Sem resposta.", "layout": "title", "caption": "", "media": None, "show": [], "reveal": [], "focus": [], "callouts": [], "impact": None, "marks": []}]
     return {"title": title, "kind": "concept", "media": [], "diagram": None, "chart": None, "geo": None, "beats": beats}

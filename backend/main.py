@@ -456,12 +456,12 @@ Retorne SOMENTE JSON válido, sem markdown, neste formato:
 {
  "title": "título curto",
  "topic_kind": "process|structure|concept|comparison|timeline|geo|data|math",
- "media": [{"id":"m1","kind":"image|video","query":"busca em inglês, 2 a 5 palavras, substantivos concretos","caption":"legenda curta"}],
+ "media": [{"id":"m1","kind":"image|video","query":"busca em inglês, 2 a 5 palavras, substantivos concretos","caption":"legenda curta","tag":"RÓTULO VERTICAL CURTO"}],
  "diagram": {"nodes":[{"id":"reator","label":"Reator","detail":"até 14 palavras","kind":"source|process|store|output|actor|concept|hazard","icon":"atom","x":15,"y":50}],
              "edges":[{"from":"reator","to":"vapor","label":"calor","flow":true}]},
  "chart": {"type":"bar|line","title":"...","unit":"%","series":[{"label":"...","value":0}]},
  "geo": {"points":[{"id":"sp","label":"São Paulo","detail":"...","lat":-23.55,"lon":-46.63,"layer":"cidades"}],"links":[{"from":"sp","to":"rj","label":"rota"}]},
- "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye","media":"m1","show":["m1","m2","m3"],"reveal":["reator"],"focus":["reator"],"caption":"legenda opcional","callouts":[{"text":"chamada curta","side":"left|right","at":0.3,"kind":"fact|term|number","target":"m1"}]}]
+ "beats": [{"say":"fala","layout":"title|media|diagram|split|chart|eye","media":"m1","show":["m1","m2","m3"],"reveal":["reator"],"focus":["reator"],"caption":"legenda opcional","callouts":[{"text":"chamada curta","side":"left|right","at":0.3,"kind":"fact|term|number","target":"m1"}],"impact":{"text":"NÃO","at":0.4,"tone":"neutral|alert|positive"},"marks":[{"type":"circle|underline|arrow|bracket|icon","target":"m1","from":"m1","to":"reator","targets":["m1","m2"],"icon":"bolt","label":"2 a 4 palavras","at":0.5}]}]
 }
 Todos os blocos (media, diagram, chart, geo) são OPCIONAIS: inclua só o que o assunto realmente pede, e use null ou omita o resto.
 
@@ -496,11 +496,22 @@ CHAMADAS (texto curto na tela)
 - "at" vai de 0 a 1 e diz em que ponto da fala a chamada entra (0 = início, 1 = fim), na ordem em que o assunto é citado; deixe pelo menos 0.2 de distância entre chamadas do mesmo beat. "side" alterna left e right. "kind": "number" para valores (ex.: "93 milhões de km"), "term" para conceitos e nomes, "fact" para o resto. "target" (opcional) é o id da mídia ou do nó/ponto a que a chamada se refere.
 - Só escreva números e fatos que você sabe com certeza.
 
+PALAVRA-IMPACTO
+- "impact" é UMA palavra (no máximo duas) que se forma no meio da tela, em letras enormes, quando a fala a cita: o termo que carrega o sentido do trecho (ex.: "VERDADE", "CALOR", "93 MILHÕES"). "at" (0 a 1) é o ponto da fala em que ela entra; "tone": "alert" para perigo ou erro, "positive" para acerto ou boa notícia, "neutral" para o resto.
+- Use com moderação: em no máximo metade dos beats, nunca em dois seguidos, e só onde a palavra realmente resume o momento. Deixe de fora quando não houver uma palavra forte.
+
+QUADRO DESENHADO (marcas feitas à mão)
+- "marks" são traços que se desenham sobre a cena no ritmo da fala: de 0 a 3 por beat, só quando ajudam a apontar. Tipos: "circle" (circula o "target"), "underline" (sublinha o "target"), "arrow" (seta de "from" para "to"; sem "from", entra do lado da tela), "bracket" (colchete agrupando 2 a 4 ids em "targets", com o "label" na vertical) e "icon" (desenha um ícone ao lado do "target").
+- Os alvos são ids de mídia, de nós do diagrama ou de pontos do mapa, e precisam estar visíveis naquele beat. "icon" só aceita estes nomes: bolt atom flame drop gear shield globe clock coin trend-up trend-down people house heart book lock warning check cross star search pin flag scale megaphone newspaper lightbulb rocket leaf sun cloud phone mail factory vote.
+- "label" é uma anotação de 2 a 4 palavras, como escrita à mão ao lado do traço. "at" diz quando o traço entra; espace as marcas em pelo menos 0.1.
+- Cada mídia pode ter um "tag" de 1 a 3 palavras (ex.: "FOTO 2019", "ARQUIVO") que aparece na vertical no canto do cartão.
+
 CONTINUIDADE
 - Se houver "CENA ANTERIOR" e a nova pergunta for um aprofundamento (ex.: "e como ocorre a fissão?"), monte uma cena NOVA focada no detalhe pedido, sem repetir o que já foi mostrado. Se o assunto mudou, ignore a cena anterior.
 
 SEGURANÇA
-- Não detalhe como fabricar armas, drogas ou causar danos. Em temas médicos, financeiros ou legais, seja cauteloso e mencione procurar um profissional quando fizer sentido. Não invente números nem fatos. Em geografia (em que cidade, estado ou país fica algo), só afirme o que souber com certeza; na dúvida, omita o estado ou fale só do país. Prefira dizer menos a dizer errado."""
+- Não detalhe como fabricar armas, drogas ou causar danos. Em temas médicos, financeiros ou legais, seja cauteloso e mencione procurar um profissional quando fizer sentido. Não invente números nem fatos. Em geografia (em que cidade, estado ou país fica algo), só afirme o que souber com certeza; na dúvida, omita o estado ou fale só do país. Prefira dizer menos a dizer errado.
+"""
 
 
 class SceneRequest(BaseModel):

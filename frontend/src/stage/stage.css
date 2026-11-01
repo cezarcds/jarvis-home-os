@@ -83,8 +83,15 @@
 .mw-card { position:absolute; margin:0; z-index:2; transform:rotate(var(--rot,0deg)); transition:left .95s var(--ease), top .95s var(--ease), width .95s var(--ease), height .95s var(--ease), opacity .6s ease, transform .9s var(--ease), filter .6s ease; animation:mw-in 1s var(--ease) var(--d,0ms) both; opacity:.82; filter:saturate(.85); }
 .mw-card.is-featured { opacity:1; filter:none; z-index:3; transform:rotate(var(--rot,0deg)) scale(1.025); }
 .mw-card:only-child { opacity:1; filter:none; }
-.mw-inner { position:absolute; inset:0; overflow:hidden; border-radius:14px; border:1px solid rgba(147,197,253,.22); background:#041322; box-shadow:0 18px 50px rgba(0,0,0,.5), 0 0 40px rgba(34,211,238,.08); animation:mw-float var(--f,7s) ease-in-out infinite alternate; }
-.mw-card.is-featured .mw-inner { border-color:rgba(103,232,249,.55); box-shadow:0 22px 64px rgba(0,0,0,.55), 0 0 56px rgba(34,211,238,.22); }
+.mw-inner { position:absolute; inset:0; overflow:hidden; border-radius:4px; border:3px solid rgba(244,246,250,.9); background:#041322; box-shadow:0 18px 50px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.4); animation:mw-float var(--f,7s) ease-in-out infinite alternate; }
+.mw-card.is-featured .mw-inner { border-color:#fff; box-shadow:0 22px 64px rgba(0,0,0,.6), 0 0 52px rgba(103,232,249,.28); }
+/* fita adesiva: o cartão parece colado no quadro */
+.mw-card::before, .mw-card::after { content:""; position:absolute; z-index:4; pointer-events:none; width:58px; height:19px; background:linear-gradient(180deg,rgba(255,245,200,.62),rgba(236,216,150,.42)); border:1px solid rgba(255,255,255,.2); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+.mw-card::before { top:-9px; left:calc(50% - 29px); transform:rotate(-3deg); }
+.mw-card::after { display:none; }
+.mw-card.is-featured::after { display:block; bottom:-8px; right:16px; width:46px; transform:rotate(34deg); }
+.mw-corner { display:none; }
+.mw-tag { position:absolute; z-index:3; left:0; top:0; bottom:0; display:flex; align-items:center; padding:0 .3rem; writing-mode:vertical-rl; transform:rotate(180deg); font:700 .55rem ui-monospace,monospace; letter-spacing:.22em; color:#fde68a; background:linear-gradient(to right,rgba(2,8,16,.7),rgba(2,8,16,.35)); text-shadow:0 0 6px rgba(0,0,0,.7); white-space:nowrap; overflow:hidden; }
 .mw-img, .mw-embed { width:100%; height:100%; object-fit:cover; border:0; display:block; }
 .mw-img { animation:st-kenburns 22s ease-in-out infinite alternate; }
 .mw-img:is(video) { animation:none; }
@@ -200,3 +207,21 @@
 /* microfone compacto, fora da área de conteúdo */
 .mic-dock { position:fixed; right:1.1rem; bottom:.9rem; z-index:40; width:92px; height:92px; }
 @media (max-width:760px) { .mic-dock { transform:scale(.85); transform-origin:bottom right; } }
+
+
+/* ====================  QUADRO DESENHADO  ==================== */
+.mk-layer { position:absolute; inset:0; z-index:5; pointer-events:none; }
+.mk-svg { position:absolute; inset:0; overflow:visible; }
+.mk-path { fill:none; stroke:var(--c, #f5f1e4); stroke-width:3.2; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:1; stroke-dashoffset:1; animation:mk-draw var(--dur,900ms) cubic-bezier(.5,.1,.2,1) var(--delay,0ms) forwards; filter:drop-shadow(0 0 3px var(--c, #f5f1e4)); }
+.mk-icon-path { stroke-width:1.5; }
+.mk-label { font-family:"Caveat","Segoe Print","Bradley Hand",cursive; font-weight:700; font-size:clamp(1.15rem,1.75vw,1.8rem); fill:var(--c, #f5f1e4); paint-order:stroke; stroke:rgba(2,8,16,.9); stroke-width:5px; stroke-linejoin:round; opacity:0; animation:mk-fade .5s ease var(--delay,0ms) forwards; }
+.mk-label.is-vertical { font-size:clamp(1.3rem,2vw,2.1rem); letter-spacing:.04em; }
+.mk-group.is-leaving { animation:mk-leave .55s ease both; }
+@keyframes mk-draw { to { stroke-dashoffset:0; } }
+@keyframes mk-fade { to { opacity:1; } }
+@keyframes mk-leave { to { opacity:0; } }
+
+/* ====================  PALAVRA-IMPACTO (partículas)  ==================== */
+.im-layer { position:absolute; inset:0; z-index:4; pointer-events:none; }
+.im-canvas { position:absolute; inset:0; width:100%; height:100%; filter:drop-shadow(0 0 14px var(--im-glow, #67e8f9)); }
+@media (prefers-reduced-motion:reduce) { .mk-path { animation-duration:.01ms !important; animation-delay:0ms !important; } .mk-label { animation-duration:.01ms !important; } }

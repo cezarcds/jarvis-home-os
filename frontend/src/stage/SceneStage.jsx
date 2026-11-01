@@ -3,6 +3,8 @@ import "./stage.css";
 import DiagramLayer from "./DiagramLayer.jsx";
 import MediaWall from "./MediaWall.jsx";
 import Callouts from "./Callouts.jsx";
+import Marks from "./Marks.jsx";
+import ImpactWord from "./ImpactWord.jsx";
 import ChartLayer from "./ChartLayer.jsx";
 import EyeLayer from "./EyeLayer.jsx";
 import { effectiveLayout, rectsFor, rectStyle } from "./layouts.js";
@@ -81,6 +83,13 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
 
   const calloutCtx = { cards, nodes };
   const wallOpacity = rects.media.o;
+  const spokenAll = player.finished && !player.playing;
+  // Para desenhar sobre um nó ele precisa estar visível: o diagrama aparecendo e o nó já revelado.
+  const markNodes = useMemo(() => {
+    if (rects.diagram.o <= 0.5) return {};
+    return Object.fromEntries(Object.entries(nodes).filter(([id]) => player.revealed?.has?.(id)));
+  }, [nodes, rects.diagram.o, player.revealed]);
+  const beatKey = scene && beat ? `${scene.id}:${player.index}` : "none";
 
   return (
     <section className={`st ${dim ? "is-dim" : ""} st-layout-${layout}`} aria-live="polite">
@@ -117,20 +126,18 @@ export default function SceneStage({ scene, media, player, loading, dim, status,
             </div>
           )}
           {/* título */}
-          <div className={`st-titlecard ${layout === "title" ? "is-on" : ""}`}>
+          <div className={`st-titlecard ${layout === "title" && !beat?.impact ? "is-on" : ""}`}>
             <span>JARVIS · {scene.kind?.toUpperCase() || "EXPLICAÇÃO"}</span>
             <h1>{scene.title}</h1>
           </div>
-          {/* chamadas de texto, no ritmo da fala */}
+          {/* palavra-impacto: se forma de partículas no meio da tela */}
+          {beat && <ImpactWord beatKey={beatKey} impact={beat.impact || null} progress={player.progress} finished={spokenAll} />}
+          {/* quadro desenhado: círculos, setas, colchetes e ícones feitos à mão */}
           {beat && (
-            <Callouts
-              beatKey={`${scene.id}:${player.index}`}
-              callouts={beat.callouts || []}
-              progress={player.progress}
-              finished={player.finished && !player.playing}
-              ctx={calloutCtx}
-            />
+            <Marks beatKey={beatKey} marks={beat.marks || []} progress={player.progress} finished={spokenAll} ctx={{ cards, nodes: markNodes }} />
           )}
+          {/* chamadas de texto, no ritmo da fala */}
+          {beat && <Callouts beatKey={beatKey} callouts={beat.callouts || []} progress={player.progress} finished={spokenAll} ctx={calloutCtx} />}
         </div>
       )}
 

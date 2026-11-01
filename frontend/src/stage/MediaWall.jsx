@@ -47,10 +47,12 @@ function Content({ entry, featured, visible, alt }) {
  * Mural de mídia flutuante. `cards` vem de placeWall (posições em % do palco); cada cartão tem a
  * própria chave, então ao mudar o conjunto os que ficam deslizam para o novo lugar e os novos
  * entram "de trás para a frente".
+ * Cada mídia pode ter um `tag` (1–3 palavras) que aparece na vertical no canto do cartão.
  */
 export default function MediaWall({ cards, entries, scene, beat, visible }) {
   if (!cards.length) return null;
-  const captionOf = (id) => scene.media.find((m) => m.id === id)?.caption;
+  const sceneItem = (id) => scene.media.find((m) => m.id === id);
+  const captionOf = (id) => sceneItem(id)?.caption;
   return (
     <>
       {cards.map((c) => {
@@ -73,7 +75,7 @@ export default function MediaWall({ cards, entries, scene, beat, visible }) {
               ) : (
                 <Content entry={entry} featured={c.featured || cards.length === 1} visible={visible} alt={caption || entry.item.title || ""} />
               )}
-              <span className="mw-corner tl" /><span className="mw-corner tr" /><span className="mw-corner bl" /><span className="mw-corner br" />
+              {sceneItem(c.id)?.tag && <span className="mw-tag">{sceneItem(c.id).tag}</span>}
               {caption && <figcaption className="mw-caption"><b>▸</b> {caption}</figcaption>}
               {credit && c.featured && <span className="mw-credit">{credit}</span>}
             </div>
